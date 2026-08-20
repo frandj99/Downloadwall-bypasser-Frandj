@@ -1,50 +1,64 @@
-# Hypeddit DownloadWallBypasser 2k24
+# Hypeddit & Fangate DownloadWallBypasser (Reloaded)
 
-## Description:
-This user script, named Hypeddit DownloadWallBypasser 2k24, is designed to bypass download gates on Hypeddit tracks. It automates the process of navigating through fangates that require interactions with various social media platforms like SoundCloud and Spotify, allowing users to download tracks without fulfilling these requirements manually.
+[![Install Userscript](https://img.shields.io/badge/Tampermonkey-Install%20Script-success?style=for-the-badge&logo=tampermonkey)](https://raw.githubusercontent.com/frandj99/Downloadwall-bypasser-Frandj/master/script.user.js)
+[![GitHub release](https://img.shields.io/badge/Release-2026.08.20-blue?style=for-the-badge)](https://github.com/frandj99/Downloadwall-bypasser-Frandj)
 
-## Mandatory:
-To use this script effectively, users must ensure the following:
-- **Soundcloud and Spotify accounts**: Users must be logged into their SoundCloud and Spotify accounts before running the script to bypass the fangates successfully.
+An automated userscript to bypass music download fangates across **Hypeddit**, **PumpYourSound**, and **Droploud**. It handles mandatory social actions, authorization popups, comments, and form steps automatically so you can grab track downloads without friction.
 
-## Usage:
-This script can be used on Hypeddit's website to bypass download gates encountered when attempting to download tracks. It targets specific URLs related to Hypeddit tracks and SoundCloud login pages, ensuring seamless navigation through the download process.
+---
 
-## Installation:
-1. Install a userscript manager extension like Tampermonkey for your browser.
-2. Create a new userscript.
-3. Copy and paste the script code provided above into the userscript editor.
-4. Save the script, ensuring that it is enabled.
-5. Visit a Hypeddit track page and let the script automatically bypass the download gates.
+## 🚀 One-Click Install & Auto-Updates
 
-**Note**: Always exercise caution when running userscripts from unknown sources.
+1. Install a userscript manager such as [Tampermonkey](https://www.tampermonkey.net/) (recommended) or Violentmonkey.
+2. Click the install badge or direct link below:
+   👉 **[Click here to Install / Update Userscript](https://raw.githubusercontent.com/frandj99/Downloadwall-bypasser-Frandj/master/script.user.js)**
+3. Tampermonkey will prompt you to install. Click **Install**.
+4. **Automatic Updates**: This script contains `@updateURL` and `@downloadURL` tags configured to this repository. Tampermonkey will check for updates automatically and keep your script current.
 
-## FAQ
+---
 
-Q: Can't pass the email validation step
-A: Please setup another email with a *valid* domain. That domain could be anything, it just needs to exists.
+## ⚙️ Easy Settings Configuration
 
-Q: I don't want to end up with accounts full of spam (Spotify, Soundcloud). Is there a workaround?
-A: You could create "dummy"-accounts for the services. That way it doesn't matter that it reposts, comments, follows or even creates playlists.
+You **do not** need to edit the script file to set your email address or comments. 
 
-## Configuration:
-The script utilizes the `hypedditSettings` object to customize certain parameters. Users can configure these settings according to their preferences:
-- `email`: Set your email address.
-- `name`: Set your name.
-- `comment`: Set the comment to be posted (e.g., "Nice one bruva!").
-- `auto_close`: Set to `true` if you want the window to close automatically after a certain timeout.
-- `auto_close_timeout_in_ms`: Set the timeout duration in milliseconds for the window to close automatically.
+Simply click the **Tampermonkey icon** in your browser toolbar while on any supported page, and select:
+* **`⚙️ Set Email Address`**: Enter your custom email address (saved persistently across script updates).
+* **`⚙️ Set Name`**: Enter your preferred display name.
+* **`⚙️ Set SoundCloud Comment`**: Customize the comment posted on SoundCloud gates (default: `"Woow! Thanks bro"`).
 
-### Configuring `hypedditSettings`:
-```javascript
-window.hypedditSettings = {
-    email: 'your_email@example.com',
-    name: 'Your Name',
-    comment: 'Your standard comment',
-    auto_close: true,
-    auto_close_timeout_in_ms: 5000
-};
-```
+Your settings are stored securely inside Tampermonkey storage (`GM_setValue`) and will never be overwritten when the script auto-updates!
 
-## Disclaimer
-This script relays  heavily on HTML-elements like divs, classes and ids. When the webbuilder changes the page it could break this script. So please be aware of that. Some elements of the script are borrowed. But mostly is created from ground up with vanilla JS. I kind of got inspired by a snippet that was created by Zuko which provided a [userscript](https://gist.github.com/tansautn/d6abfbfcff5d7eb44fdb83f5abc89383) that would autoclick the Soundcloud part.
+---
+
+## ⚡ Supported Platforms & Features
+
+### 1. **Droploud** (`droploud.com`)
+* **Email & Terms**: Automatically enters your email and checks required consent checkboxes.
+* **Instagram Follows**: Clicks gate requirements and auto-closes temporary Instagram popup tabs after 2.5 seconds.
+* **SoundCloud Flow**: Automatically inputs your comment with realistic React typing emulation (properly updating character counters) and handles account connections / repost validations.
+* **Spotify Step**: Automatically connects and authorizes required Spotify follow steps.
+* **Download Unlock**: Clicks the final direct download button immediately once the gate finishes.
+
+### 2. **Hypeddit** (`hypeddit.com`)
+* Automates Multi-Portal gates (`Spotify`, `SoundCloud`, `Instagram`, `Email`, `YouTube`, `TikTok`, `Facebook`, `Mixcloud`, `Bandcamp`).
+* Bypasses manual channel follow checks by automatically clearing undone states and advancing to the download screen.
+* Auto-submits email forms with your configured credentials.
+
+### 3. **PumpYourSound** (`pumpyoursound.com`)
+* Auto-connects SoundCloud SDK.
+* Posts automated track comments and verifies reposts/likes via background API requests.
+* Handles external social steps and submits the free download form.
+
+---
+
+## 💡 Tips & Prerequisites
+
+* **SoundCloud & Spotify Logins**: Make sure you are logged into your SoundCloud and Spotify accounts in your browser so OAuth / connect requests complete seamlessly.
+* **Dummy Accounts**: Using secondary or "dummy" accounts for music fangates is recommended to keep your personal feeds and playlists clean.
+
+---
+
+## 📜 Credits & License
+
+* Originally based on [hypeddit-downloadwall-bypasser-reloaded](https://github.com/fan1200/hypeddit-downloadwall-bypasser-reloaded) by **fan1200**.
+* Maintained and enhanced by **frandj99**.
