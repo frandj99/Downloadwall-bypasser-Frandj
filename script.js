@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Hypeddit DownloadWallBypasser Reloaded
 // @namespace    https://github.com/frandj99/Downloadwall-bypasser-Frandj
-// @version      2026.08.20
+// @version      2026.10.15
 // @description  Bypass Hypeddit, PumpYourSound, and Droploud download fangates automatically. Soundcloud and Spotify accounts are mandatory!
 // @author       fan1200, frandj99
 // @match        *://hypeddit.com/*
@@ -10,6 +10,8 @@
 // @match        *://*.pumpyoursound.com/*
 // @match        *://droploud.com/*
 // @match        *://*.droploud.com/*
+// @match        *://soundcloud.com/*
+// @match        *://*.soundcloud.com/*
 // @match        *://secure.soundcloud.com/connect*
 // @match        *://secure.soundcloud.com/authorize*
 // @match        *://*.instagram.com/*
@@ -132,18 +134,38 @@
 
         const uWindow = typeof unsafeWindow !== "undefined" ? unsafeWindow : window;
 
-        // Auto-close any popup tabs opened by Droploud after 2.5 seconds
+        // Auto-close non-repost popup tabs opened by Droploud after 2.5 seconds
         if (!uWindow.__hasOverriddenOpen) {
             uWindow.__hasOverriddenOpen = true;
             const originalOpen = uWindow.open;
             uWindow.open = function (...args) {
-                console.info("Droploud window.open intercepted:", args[0]);
+                const targetUrl = args[0] ? String(args[0]) : "";
+                console.info("Droploud window.open intercepted:", targetUrl);
+
+                const isScTrack = targetUrl.includes("soundcloud.com") &&
+                                  !targetUrl.includes("/connect") &&
+                                  !targetUrl.includes("/authorize");
+
+                if (isScTrack) {
+                    setStored("fangate_repost_time", Date.now());
+                    setStored("fangate_repost_track", targetUrl);
+                    try {
+                        const parsed = new URL(targetUrl, window.location.href);
+                        parsed.hash = "fangate_repost";
+                        args[0] = parsed.toString();
+                    } catch(e) {}
+                }
+
                 try {
                     const win = originalOpen.apply(this, args);
                     if (win) {
-                        setTimeout(() => {
-                            try { win.close(); } catch(e) {}
-                        }, 2500);
+                        // For generic social popups (Instagram etc.), auto-close after 2.5s.
+                        // For SoundCloud track reshare pages, keep tab open so it can be reposted!
+                        if (!isScTrack) {
+                            setTimeout(() => {
+                                try { win.close(); } catch(e) {}
+                            }, 2500);
+                        }
                         return win;
                     }
                 } catch(e) {}
@@ -228,8 +250,8 @@
                     const href = (el.getAttribute('href') || el.href || "").toLowerCase();
                     // Prevent clicking internal site navigation like creator cards / promo / nav links
                     if (href.startsWith('/') || href.includes('droploud.com/creator') || href.includes('droploud.com/u/') || href.startsWith('mailto:')) return false;
-                    const txt = (el.textContent || "").trim();
-                    if (txt.includes("Open track on SoundCloud") || txt.includes("FREE DOWNLOAD") || txt.includes("Terms") || txt.includes("DMCA")) return false;
+                    const txt = (el.textContent || "").trim().toLowerCase();
+                    if (txt.includes("open track on soundcloud") || txt.includes("reshare") || txt.includes("repost") || txt.includes("free download") || txt.includes("terms") || txt.includes("dmca")) return false;
 
                     return (txt.includes("↗") || txt.includes("@") || href.includes("instagram.com") || href.includes("spotify.com") || href.includes("soundcloud.com")) &&
                         !el.dataset.autoClicked && !el.disabled;
@@ -252,10 +274,10 @@
                 }
             }
 
-            // 4. SoundCloud step (with realistic comment typing emulation)
+            // 4. SoundCloud step (with realistic comment typing emulation and track repost handling)
             const commentInput = document.querySelector('#dtr-sc-comment-input, textarea.ds-input, textarea[placeholder*="comment"], textarea');
             const charCounter = Array.from(document.querySelectorAll('div, span, p')).find(el => /^\s*0\s*\/\s*\d+\s*$/.test(el.textContent));
-            const needsTyping = commentInput && (commentInput.value !== window.hypedditSettings.comment || !!charCounter || !commentInput.dataset.typed);
+            const needsTyping = commentInput && (commentInput.value !== window.hypedditSettings.comment || !charCounter || !commentInput.dataset.typed);
 
             if (needsTyping) {
                 commentInput.dataset.typed = "true";
@@ -275,20 +297,45 @@
                 }
             }
 
-            const openScTrackBtn = Array.from(document.querySelectorAll('.dtr-stage button, .dtr-stage a, button, a')).find(btn =>
-                btn.textContent.includes("Open track on SoundCloud")
-            );
-            if (openScTrackBtn && !window.hasOpenedScTrack) {
-                window.hasOpenedScTrack = true;
-                console.info("Clicking Open track on SoundCloud");
-                try { openScTrackBtn.click(); } catch(e) {}
+            const openScTrackBtn = Array.from(document.querySelectorAll('.dtr-stage button, .dtr-stage a, .dtr-card-pane button, .dtr-card-pane a, button, a')).find(btn => {
+                const txt = (btn.textContent || "").trim().toLowerCase();
+                const href = (btn.getAttribute('href') || btn.href || "").toLowerCase();
+                const isScTrack = href.includes("soundcloud.com") && !href.includes("/connect") && !href.includes("/authorize");
+                const isReshareText = txt.includes("open track on soundcloud") ||
+                                      txt.includes("open on soundcloud") ||
+                                      txt.includes("reshare") ||
+                                      txt.includes("repost") ||
+                                      txt.includes("share track");
+                return (isReshareText || isScTrack) &&
+                       !txt.includes("verify") && !txt.includes("reposted") && !txt.includes("reshared") && !txt.includes("connect soundcloud") && !btn.disabled;
+            });
+
+            if (openScTrackBtn) {
+                const repostDone = getStored("fangate_repost_completed", 0);
+                if (!window.lastOpenedScTrack || (now - window.lastOpenedScTrack > 15000 && !repostDone)) {
+                    window.lastOpenedScTrack = now;
+                    setStored("fangate_repost_time", Date.now());
+                    if (openScTrackBtn.href && openScTrackBtn.href.includes("soundcloud.com")) {
+                        setStored("fangate_repost_track", openScTrackBtn.href);
+                        try {
+                            const u = new URL(openScTrackBtn.href, window.location.href);
+                            u.hash = "fangate_repost";
+                            openScTrackBtn.href = u.toString();
+                        } catch(e) {}
+                    }
+                    console.info("Clicking Open track on SoundCloud / Reshare button:", openScTrackBtn.textContent.trim());
+                    try { openScTrackBtn.click(); } catch(e) {}
+                }
             }
 
-            const verifyRepostBtn = Array.from(document.querySelectorAll('.dtr-stage button, button')).find(btn =>
-                (btn.textContent.toLowerCase().includes("verify") || btn.textContent.toLowerCase().includes("reposted")) && !btn.disabled
-            );
+            const verifyRepostBtn = Array.from(document.querySelectorAll('.dtr-stage button, .dtr-card-pane button, button')).find(btn => {
+                const txt = (btn.textContent || "").trim().toLowerCase();
+                return (txt.includes("verify") || txt.includes("reposted") || txt.includes("reshared") || txt.includes("i've reposted") || txt.includes("i've reshared") || txt.includes("check repost")) && !btn.disabled;
+            });
             if (verifyRepostBtn) {
-                if (!window.lastVerifyClick || now - window.lastVerifyClick > 3000) {
+                const repostDone = getStored("fangate_repost_completed", 0);
+                const interval = repostDone ? 2000 : 3500;
+                if (!window.lastVerifyClick || now - window.lastVerifyClick > interval) {
                     window.lastVerifyClick = now;
                     console.info("Clicking Verify Repost");
                     verifyRepostBtn.click();
@@ -600,35 +647,116 @@
                            window.location.pathname.includes("/authorize") ||
                            window.location.host.includes("secure.soundcloud.com");
 
-        if (!isAuthPage) return;
+        if (isAuthPage) {
+            const tryClickAuth = () => {
+                if (window.hasClickedScAuth) return;
 
-        const tryClickAuth = () => {
-            if (window.hasClickedScAuth) return;
+                const buttons = Array.from(document.querySelectorAll('button[type="submit"], input[type="submit"], button'));
+                const authButton = buttons.find(btn => {
+                    if (btn.closest('.headerSearch') || btn.closest('form[role="search"]') || btn.closest('.searchForm')) return false;
+                    const txt = (btn.textContent || btn.value || "").trim().toLowerCase();
+                    return txt.includes("connect") || txt.includes("authorize") || txt.includes("allow") || txt.includes("accept") || btn.classList.contains("sc-button-connect") || (btn.type === "submit" && !btn.classList.contains("headerSearch__submit"));
+                });
 
-            const buttons = Array.from(document.querySelectorAll('button[type="submit"], input[type="submit"], button'));
-            const authButton = buttons.find(btn => {
-                if (btn.closest('.headerSearch') || btn.closest('form[role="search"]') || btn.closest('.searchForm')) return false;
-                const txt = (btn.textContent || btn.value || "").trim().toLowerCase();
-                return txt.includes("connect") || txt.includes("authorize") || txt.includes("allow") || txt.includes("accept") || btn.classList.contains("sc-button-connect") || (btn.type === "submit" && !btn.classList.contains("headerSearch__submit"));
+                if (authButton) {
+                    window.hasClickedScAuth = true;
+                    console.info("Clicking SoundCloud authorize button:", authButton);
+                    authButton.click();
+                }
+            };
+
+            tryClickAuth();
+            let retries = 0;
+            const intervalId = setInterval(() => {
+                retries++;
+                if (window.hasClickedScAuth || retries > 15) {
+                    clearInterval(intervalId);
+                    return;
+                }
+                tryClickAuth();
+            }, 300);
+            return;
+        }
+
+        // Regular SoundCloud track page: check if opened from a fangate requesting reshare/repost
+        const isFangateReferrer = !!(document.referrer && document.referrer.match(/(droploud|hypeddit|pumpyoursound)/i));
+        const isFangateHash = window.location.hash.includes("fangate_repost");
+        const lastRepostTime = getStored("fangate_repost_time", 0);
+        const isRecentRepostRequest = (Date.now() - lastRepostTime) < 120000; // requested within last 2 minutes
+        const shouldAutoRepost = isFangateHash || isFangateReferrer || isRecentRepostRequest;
+
+        if (!shouldAutoRepost) return;
+
+        console.info("SoundCloud track opened from fangate detected. Initiating auto-repost handler...");
+
+        const findRepostButton = () => {
+            const directBtn = document.querySelector('button.sc-button-repost, .sc-button-repost');
+            if (directBtn) return directBtn;
+
+            const candidates = Array.from(document.querySelectorAll('.soundActions button, .listenEngagement button, button.sc-button, button'));
+            return candidates.find(btn => {
+                if (btn.closest('.headerSearch') || btn.closest('.playControls')) return false;
+                const title = (btn.getAttribute('title') || '').toLowerCase();
+                const aria = (btn.getAttribute('aria-label') || '').toLowerCase();
+                const txt = (btn.textContent || '').trim().toLowerCase();
+                return title.includes("repost") || aria.includes("repost") || txt === "repost" || txt === "reposted";
             });
-
-            if (authButton) {
-                window.hasClickedScAuth = true;
-                console.info("Clicking SoundCloud authorize button:", authButton);
-                authButton.click();
-            }
         };
 
-        tryClickAuth();
-        let retries = 0;
-        const intervalId = setInterval(() => {
-            retries++;
-            if (window.hasClickedScAuth || retries > 15) {
-                clearInterval(intervalId);
+        const tryRepostTrack = () => {
+            if (window.hasHandledScRepost) return;
+
+            const repostBtn = findRepostButton();
+            if (!repostBtn) return;
+
+            const isAlreadyReposted = repostBtn.classList.contains("sc-button-selected") ||
+                                      (repostBtn.getAttribute('title') || '').toLowerCase().includes("reposted") ||
+                                      (repostBtn.getAttribute('title') || '').toLowerCase().includes("remove") ||
+                                      (repostBtn.getAttribute('aria-label') || '').toLowerCase().includes("remove");
+
+            if (isAlreadyReposted) {
+                window.hasHandledScRepost = true;
+                console.info("Track is already reposted on SoundCloud profile!");
+                setStored("fangate_repost_completed", Date.now());
+                setStored("fangate_repost_time", 0);
+
+                setTimeout(() => {
+                    try { window.close(); } catch(e) {}
+                }, 1500);
                 return;
             }
-            tryClickAuth();
+
+            window.hasHandledScRepost = true;
+            console.info("Clicking SoundCloud Repost button:", repostBtn);
+            repostBtn.click();
+            setStored("fangate_repost_completed", Date.now());
+            setStored("fangate_repost_time", 0);
+
+            // Give SoundCloud time to send the repost network request before closing the tab
+            setTimeout(() => {
+                try { window.close(); } catch(e) {}
+            }, 2000);
+        };
+
+        tryRepostTrack();
+        let repostRetries = 0;
+        const repostInterval = setInterval(() => {
+            repostRetries++;
+            tryRepostTrack();
+            if (window.hasHandledScRepost || repostRetries > 40) {
+                clearInterval(repostInterval);
+            }
         }, 300);
+
+        const repostObserver = new MutationObserver(() => {
+            tryRepostTrack();
+            if (window.hasHandledScRepost) {
+                repostObserver.disconnect();
+            }
+        });
+        if (document.body) {
+            repostObserver.observe(document.body, { childList: true, subtree: true });
+        }
     }
 
     window.handleFollowOptions = function (containerElementId, skipperId) {

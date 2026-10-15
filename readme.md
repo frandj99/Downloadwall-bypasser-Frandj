@@ -1,7 +1,7 @@
 # Hypeddit & Fangate DownloadWallBypasser (Reloaded)
 
 [![Install Userscript](https://img.shields.io/badge/Tampermonkey-Install%20Script-success?style=for-the-badge&logo=tampermonkey)](https://raw.githubusercontent.com/frandj99/Downloadwall-bypasser-Frandj/master/script.user.js)
-[![GitHub release](https://img.shields.io/badge/Release-2026.08.20-blue?style=for-the-badge)](https://github.com/frandj99/Downloadwall-bypasser-Frandj)
+[![GitHub release](https://img.shields.io/badge/Release-2026.10.15-blue?style=for-the-badge)](https://github.com/frandj99/Downloadwall-bypasser-Frandj)
 
 An automated userscript to bypass music download fangates across **Hypeddit**, **PumpYourSound**, and **Droploud**. It handles mandatory social actions, authorization popups, comments, and form steps automatically so you can grab track downloads without friction.
 
@@ -35,7 +35,7 @@ Your settings are stored securely inside Tampermonkey storage (`GM_setValue`) an
 ### 1. **Droploud** (`droploud.com`)
 * **Email & Terms**: Automatically enters your email and checks required consent checkboxes.
 * **Instagram Follows**: Clicks gate requirements and auto-closes temporary Instagram popup tabs after 2.5 seconds.
-* **SoundCloud Flow**: Automatically inputs your comment with realistic React typing emulation (properly updating character counters) and handles account connections / repost validations.
+* **SoundCloud Flow**: Automatically inputs your comment with realistic React typing emulation, handles account OAuth connections, automatically reposts the required track to your SoundCloud profile, and verifies the repost/reshare so the gate proceeds seamlessly.
 * **Spotify Step**: Automatically connects and authorizes required Spotify follow steps.
 * **Download Unlock**: Clicks the final direct download button immediately once the gate finishes.
 
