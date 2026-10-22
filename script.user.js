@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Hypeddit DownloadWallBypasser Reloaded
 // @namespace    https://github.com/frandj99/Downloadwall-bypasser-Frandj
-// @version      2026.10.15
+// @version      2026.10.22
 // @description  Bypass Hypeddit, PumpYourSound, and Droploud download fangates automatically. Soundcloud and Spotify accounts are mandatory!
 // @author       fan1200, frandj99
 // @match        *://hypeddit.com/*
@@ -26,6 +26,7 @@
 // @grant        GM_getValue
 // @grant        GM_setValue
 // @grant        GM_registerMenuCommand
+// @grant        GM_openInTab
 // ==/UserScript==
 
 ;(function () {
@@ -204,19 +205,71 @@
         };
 
         const handleDroploud = function () {
-            if (performance.now() < 800) return;
             const now = Date.now();
             const activeContainer = document.querySelector('.dtr-stage, .dtr-card-pane, .dtr-track-info');
 
-            // 1. Initial "FREE DOWNLOAD" button
-            const freeDlBtn = Array.from(document.querySelectorAll('button')).find(btn =>
-                btn.textContent.toUpperCase().includes("FREE DOWNLOAD") && !btn.disabled && !btn.dataset.autoClicked
-            );
-            if (freeDlBtn) {
-                freeDlBtn.dataset.autoClicked = "true";
-                console.info("Clicking FREE DOWNLOAD");
-                freeDlBtn.click();
-                return;
+            // Track identification and session state management
+            const trackIdMatch = window.location.pathname.match(/\/track\/([a-zA-Z0-9-]+)/);
+            const currentTrackId = trackIdMatch ? trackIdMatch[1] : window.location.pathname;
+            if (window.currentTrackId !== currentTrackId) {
+                window.currentTrackId = currentTrackId;
+                setStored("fangate_current_track_id", currentTrackId);
+                window.hasClickedFinalDownload = false;
+                window.lastOpenedScTrack = 0;
+                window.lastFreeDlClick = 0;
+            }
+
+            // Extract SoundCloud track URL from page data or links
+            const getDroploudScTrackUrl = () => {
+                try {
+                    const html = document.documentElement.innerHTML;
+                    const m = html.match(/"soundcloud_url"\s*:\s*"(https?:\\\/\\\/[^"]+|https?:\/\/[^"]+)"/);
+                    if (m) {
+                        return m[1].replace(/\\\//g, "/");
+                    }
+                } catch(e) {}
+                const openBtn = Array.from(document.querySelectorAll('.dtr-stage button, .dtr-stage a, .dtr-card-pane button, .dtr-card-pane a')).find(btn => {
+                    const txt = (btn.textContent || "").toLowerCase();
+                    const href = (btn.getAttribute('href') || btn.href || "").toLowerCase();
+                    return href.includes("soundcloud.com") || txt.includes("open track on soundcloud");
+                });
+                if (openBtn) {
+                    const href = openBtn.getAttribute('href') || openBtn.href;
+                    if (href && href.includes("soundcloud.com")) return href;
+                }
+                const scLinks = Array.from(document.querySelectorAll('a[href*="soundcloud.com"]'));
+                for (const a of scLinks) {
+                    try {
+                        const u = new URL(a.href);
+                        const parts = u.pathname.split('/').filter(Boolean);
+                        if (parts.length >= 2 && !['connect', 'authorize', 'pages', 'terms', 'privacy'].includes(parts[0])) {
+                            return a.href;
+                        }
+                    } catch(e) {}
+                }
+                return null;
+            };
+
+            // 1. Initial "FREE DOWNLOAD" button:
+            // Continually click with throttle until the gate enters steps or unlock screen (solves React SSR hydration race)
+            const isGateActive = !!document.querySelector('.dtr-card-pane-step, .dtr-social-wrap, .dtr-email-wrap, .dtr-card-check');
+            if (!isGateActive) {
+                const freeDlBtn = Array.from(document.querySelectorAll('button')).find(btn => {
+                    const txt = (btn.textContent || "").trim().toUpperCase();
+                    return (txt.includes("FREE DOWNLOAD") || btn.classList.contains("dtr-card-cta")) &&
+                           !txt.includes("PREPARING") && !btn.disabled;
+                });
+                if (freeDlBtn) {
+                    if (!window.lastFreeDlClick || now - window.lastFreeDlClick > 1000) {
+                        window.lastFreeDlClick = now;
+                        console.info("Clicking FREE DOWNLOAD button (retrying until gate opens)...");
+                        freeDlBtn.click();
+                        try {
+                            freeDlBtn.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, view: window }));
+                        } catch(e) {}
+                    }
+                    return;
+                }
             }
 
             // 2. Email step handling
@@ -235,13 +288,15 @@
 
             const emailContinueBtn = Array.from(document.querySelectorAll('.dtr-stage button, .dtr-card-pane button')).find(btn => {
                 const txt = (btn.textContent || "").trim().toLowerCase();
-                return (txt.includes("continue") || txt.includes("next")) && !btn.disabled && !btn.dataset.emailContinueClicked;
+                return (txt.includes("continue") || txt.includes("next")) && !btn.disabled;
             });
             if (emailInput && emailInput.value && emailContinueBtn) {
-                emailContinueBtn.dataset.emailContinueClicked = "true";
-                console.info("Clicking email Continue button");
-                emailContinueBtn.click();
-                return;
+                if (!window.lastEmailContinueClick || now - window.lastEmailContinueClick > 2000) {
+                    window.lastEmailContinueClick = now;
+                    console.info("Clicking email Continue button");
+                    emailContinueBtn.click();
+                    return;
+                }
             }
 
             // 3. Social buttons (Instagram / SoundCloud / Spotify) strictly scoped to active card
@@ -264,17 +319,19 @@
                 });
 
                 const confirmBtn = Array.from(activeContainer.querySelectorAll('button')).find(btn =>
-                    (btn.textContent.includes("I did it") || btn.textContent.includes("I'm done") || btn.textContent.includes("Done")) && !btn.disabled && !btn.dataset.autoClicked
+                    (btn.textContent.includes("I did it") || btn.textContent.includes("I'm done") || btn.textContent.includes("Done")) && !btn.disabled
                 );
                 if (confirmBtn) {
-                    confirmBtn.dataset.autoClicked = "true";
-                    console.info("Clicking 'I did it' button");
-                    confirmBtn.click();
-                    return;
+                    if (!window.lastConfirmClick || now - window.lastConfirmClick > 1500) {
+                        window.lastConfirmClick = now;
+                        console.info("Clicking 'I did it' button");
+                        confirmBtn.click();
+                        return;
+                    }
                 }
             }
 
-            // 4. SoundCloud step (with realistic comment typing emulation and track repost handling)
+            // 4. SoundCloud step (with comment typing emulation and track repost handling)
             const commentInput = document.querySelector('#dtr-sc-comment-input, textarea.ds-input, textarea[placeholder*="comment"], textarea');
             const charCounter = Array.from(document.querySelectorAll('div, span, p')).find(el => /^\s*0\s*\/\s*\d+\s*$/.test(el.textContent));
             const needsTyping = commentInput && (commentInput.value !== window.hypedditSettings.comment || !charCounter || !commentInput.dataset.typed);
@@ -289,13 +346,19 @@
                 btn.textContent.includes("Connect SoundCloud") && !btn.disabled
             );
             if (connectScBtn) {
-                if (!window.lastConnectScClick || now - window.lastConnectScClick > 5000) {
+                if (!window.lastConnectScClick || now - window.lastConnectScClick > 4000) {
                     window.lastConnectScClick = now;
                     console.info("Clicking Connect SoundCloud");
                     connectScBtn.click();
                     return;
                 }
             }
+
+            // Proactive SoundCloud track reposting:
+            // Ensure track is opened on SoundCloud and reposted to pass Droploud verification
+            const repostKey = "repost_done_" + currentTrackId;
+            const isTrackRepostDone = getStored(repostKey, false);
+            const isScStep = !!document.querySelector('#dtr-sc-comment-input, .dtr-sc-copy, .dtr-sc-confirm, .dtr-repost-chip, .dtr-action-row');
 
             const openScTrackBtn = Array.from(document.querySelectorAll('.dtr-stage button, .dtr-stage a, .dtr-card-pane button, .dtr-card-pane a, button, a')).find(btn => {
                 const txt = (btn.textContent || "").trim().toLowerCase();
@@ -310,21 +373,27 @@
                        !txt.includes("verify") && !txt.includes("reposted") && !txt.includes("reshared") && !txt.includes("connect soundcloud") && !btn.disabled;
             });
 
-            if (openScTrackBtn) {
-                const repostDone = getStored("fangate_repost_completed", 0);
-                if (!window.lastOpenedScTrack || (now - window.lastOpenedScTrack > 15000 && !repostDone)) {
+            if ((openScTrackBtn || (isScStep && !isTrackRepostDone)) && !isTrackRepostDone) {
+                if (!window.lastOpenedScTrack || now - window.lastOpenedScTrack > 12000) {
                     window.lastOpenedScTrack = now;
-                    setStored("fangate_repost_time", Date.now());
-                    if (openScTrackBtn.href && openScTrackBtn.href.includes("soundcloud.com")) {
-                        setStored("fangate_repost_track", openScTrackBtn.href);
-                        try {
-                            const u = new URL(openScTrackBtn.href, window.location.href);
-                            u.hash = "fangate_repost";
-                            openScTrackBtn.href = u.toString();
-                        } catch(e) {}
+                    const scTrackUrl = getDroploudScTrackUrl() || (openScTrackBtn ? (openScTrackBtn.getAttribute('href') || openScTrackBtn.href) : null);
+                    if (scTrackUrl) {
+                        setStored("fangate_repost_time", Date.now());
+                        setStored("fangate_repost_track", scTrackUrl);
+                        setStored("fangate_current_track_id", currentTrackId);
                     }
-                    console.info("Clicking Open track on SoundCloud / Reshare button:", openScTrackBtn.textContent.trim());
-                    try { openScTrackBtn.click(); } catch(e) {}
+                    if (openScTrackBtn) {
+                        console.info("Clicking Open track on SoundCloud / Reshare button");
+                        try { openScTrackBtn.click(); } catch(e) {}
+                    } else if (scTrackUrl) {
+                        console.info("Proactively opening SoundCloud track for repost:", scTrackUrl);
+                        const targetUrl = scTrackUrl.includes("#fangate_repost") ? scTrackUrl : scTrackUrl + "#fangate_repost";
+                        if (typeof GM_openInTab !== "undefined") {
+                            GM_openInTab(targetUrl, { active: false, insert: true });
+                        } else {
+                            window.open(targetUrl, "_blank");
+                        }
+                    }
                 }
             }
 
@@ -333,12 +402,24 @@
                 return (txt.includes("verify") || txt.includes("reposted") || txt.includes("reshared") || txt.includes("i've reposted") || txt.includes("i've reshared") || txt.includes("check repost")) && !btn.disabled;
             });
             if (verifyRepostBtn) {
-                const repostDone = getStored("fangate_repost_completed", 0);
-                const interval = repostDone ? 2000 : 3500;
+                const interval = isTrackRepostDone ? 1500 : 3000;
                 if (!window.lastVerifyClick || now - window.lastVerifyClick > interval) {
                     window.lastVerifyClick = now;
                     console.info("Clicking Verify Repost");
                     verifyRepostBtn.click();
+                    return;
+                }
+            }
+
+            const continueAnywayBtn = Array.from(document.querySelectorAll('.dtr-stage button, .dtr-card-pane button, button')).find(btn => {
+                const txt = (btn.textContent || "").trim().toLowerCase();
+                return txt.includes("continue anyway") && !btn.disabled;
+            });
+            if (continueAnywayBtn) {
+                if (!window.lastContinueAnywayClick || now - window.lastContinueAnywayClick > 2000) {
+                    window.lastContinueAnywayClick = now;
+                    console.info("Clicking Continue anyway");
+                    continueAnywayBtn.click();
                     return;
                 }
             }
@@ -372,7 +453,12 @@
             const finalDownloadBtn = Array.from(document.querySelectorAll('.dtr-stage button, .dtr-stage a, .dtr-card-pane button, .dtr-card-pane a, button, a')).find(btn => {
                 const txt = (btn.textContent || "").trim().toLowerCase();
                 const href = (btn.getAttribute('href') || "").toLowerCase();
-                return (txt === "download" || txt === "download file" || txt.includes("download now") || href.includes("/api/download") || href.includes("r2.dev") || href.includes("drive.google")) && !btn.disabled && !btn.classList.contains("ds-free-dl");
+                const cardPane = btn.closest('.dtr-card-pane') || document.querySelector('.dtr-card-pane');
+                const isUnlockedPane = !!cardPane?.querySelector('.dtr-card-check') ||
+                                       !!cardPane?.textContent.toLowerCase().includes("drop unlocked");
+                const isDlText = txt === "download" || txt === "download file" || txt.includes("download now") || (isUnlockedPane && txt.includes("download") && !txt.includes("free"));
+                const isDlHref = href.includes("/api/download") || href.includes("r2.dev") || href.includes("drive.google");
+                return (isDlText || isDlHref) && !btn.disabled && !txt.includes("free download") && !txt.includes("preparing");
             });
             if (finalDownloadBtn && !window.hasClickedFinalDownload) {
                 window.hasClickedFinalDownload = true;
@@ -682,15 +768,24 @@
         const isFangateReferrer = !!(document.referrer && document.referrer.match(/(droploud|hypeddit|pumpyoursound)/i));
         const isFangateHash = window.location.hash.includes("fangate_repost");
         const lastRepostTime = getStored("fangate_repost_time", 0);
-        const isRecentRepostRequest = (Date.now() - lastRepostTime) < 120000; // requested within last 2 minutes
-        const shouldAutoRepost = isFangateHash || isFangateReferrer || isRecentRepostRequest;
+        const storedRepostTrack = getStored("fangate_repost_track", "");
+        let isTargetTrack = false;
+        try {
+            if (storedRepostTrack) {
+                const currentPath = window.location.pathname.replace(/\/$/, "").toLowerCase();
+                const storedPath = (new URL(storedRepostTrack, window.location.origin)).pathname.replace(/\/$/, "").toLowerCase();
+                isTargetTrack = (currentPath === storedPath);
+            }
+        } catch(e) {}
+        const isRecentRepostRequest = (Date.now() - lastRepostTime) < 180000; // requested within last 3 minutes
+        const shouldAutoRepost = isFangateHash || isFangateReferrer || isTargetTrack || isRecentRepostRequest;
 
         if (!shouldAutoRepost) return;
 
         console.info("SoundCloud track opened from fangate detected. Initiating auto-repost handler...");
 
         const findRepostButton = () => {
-            const directBtn = document.querySelector('button.sc-button-repost, .sc-button-repost');
+            const directBtn = document.querySelector('.soundActions button.sc-button-repost, .soundActions .sc-button-repost, button.sc-button-repost, .sc-button-repost');
             if (directBtn) return directBtn;
 
             const candidates = Array.from(document.querySelectorAll('.soundActions button, .listenEngagement button, button.sc-button, button'));
@@ -714,9 +809,12 @@
                                       (repostBtn.getAttribute('title') || '').toLowerCase().includes("remove") ||
                                       (repostBtn.getAttribute('aria-label') || '').toLowerCase().includes("remove");
 
+            const currentTrackId = getStored("fangate_current_track_id", "");
+
             if (isAlreadyReposted) {
                 window.hasHandledScRepost = true;
                 console.info("Track is already reposted on SoundCloud profile!");
+                if (currentTrackId) setStored("repost_done_" + currentTrackId, true);
                 setStored("fangate_repost_completed", Date.now());
                 setStored("fangate_repost_time", 0);
 
@@ -729,13 +827,18 @@
             window.hasHandledScRepost = true;
             console.info("Clicking SoundCloud Repost button:", repostBtn);
             repostBtn.click();
+            try {
+                repostBtn.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, view: window }));
+            } catch(e) {}
+
+            if (currentTrackId) setStored("repost_done_" + currentTrackId, true);
             setStored("fangate_repost_completed", Date.now());
             setStored("fangate_repost_time", 0);
 
             // Give SoundCloud time to send the repost network request before closing the tab
             setTimeout(() => {
                 try { window.close(); } catch(e) {}
-            }, 2000);
+            }, 2500);
         };
 
         tryRepostTrack();
