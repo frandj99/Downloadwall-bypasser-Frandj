@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Hypeddit DownloadWallBypasser Reloaded
 // @namespace    https://github.com/frandj99/Downloadwall-bypasser-Frandj
-// @version      2026.10.22
+// @version      2026.10.22.1
 // @description  Bypass Hypeddit, PumpYourSound, and Droploud download fangates automatically. Soundcloud and Spotify accounts are mandatory!
 // @author       fan1200, frandj99
 // @match        *://hypeddit.com/*
@@ -33,7 +33,7 @@
     "use strict"
 
     const defaultSettings = {
-        email: "musicfan@example.com",
+        email: "musicfan99@gmail.com",
         name: "Music Lover",
         comment: "Woow! Thanks bro",
         auto_close: false,
@@ -865,6 +865,25 @@
     window.handleFollowOptions = function (containerElementId, skipperId) {
         const container = document.getElementById(containerElementId);
         if (container !== null) {
+            // If there's a SoundCloud repost link, open it with #fangate_repost so SoundCloud auto-reposts it
+            const repostLink = container.querySelector('a[data-step="repost"], a[href*="soundcloud.com"][href*="repost"], a.sc-repost');
+            if (repostLink && !container.dataset.repostTriggered) {
+                container.dataset.repostTriggered = "true";
+                const trackUrl = repostLink.href || repostLink.getAttribute("href");
+                if (trackUrl && trackUrl.includes("soundcloud.com")) {
+                    setStored("fangate_repost_time", Date.now());
+                    setStored("fangate_repost_track", trackUrl);
+                    console.info("Opening SoundCloud track for repost:", trackUrl);
+                    try {
+                        const parsed = new URL(trackUrl, window.location.href);
+                        parsed.hash = "fangate_repost";
+                        window.open(parsed.toString(), "_blank");
+                    } catch(e) {
+                        try { repostLink.click(); } catch(err) {}
+                    }
+                }
+            }
+
             container
                 .querySelectorAll("a")
                 .forEach((accountItem) => {
@@ -872,11 +891,16 @@
                     accountItem.classList.add("done");
                 });
 
+            const skipperChannel = document.getElementById(skipperId.replace("_next", "_channel"));
+            if (skipperChannel) skipperChannel.click();
+
             const skipper = document.getElementById(skipperId);
             if (skipper) skipper.click();
 
-            const skipperChannel = document.getElementById(skipperId.replace("_next", "_channel"));
-            if (skipperChannel) skipperChannel.click();
+            setTimeout(() => {
+                const s = document.getElementById(skipperId);
+                if (s) s.click();
+            }, 300);
         }
     }
 
@@ -913,21 +937,34 @@
     }
 
     window.handleEmail = function () {
-        const email = window.hypedditSettings.email
-        const name = window.hypedditSettings.name
+        let email = window.hypedditSettings.email;
+        const name = window.hypedditSettings.name;
 
-        if (document.getElementById("email_name") !== null) {
-            document.getElementById("email_name").setAttribute("value", name)
+        if (!email || email.includes("@example.com") || !email.includes("@")) {
+            email = "musicfan99@gmail.com";
         }
 
-        if (document.getElementById("email_address") !== null) {
-            document
-                .getElementById("email_address")
-                .setAttribute("value", email)
-            document.getElementById("email_address").value = email
+        const nameInput = document.getElementById("email_name");
+        if (nameInput) {
+            nameInput.value = name;
+            nameInput.setAttribute("value", name);
+            nameInput.dispatchEvent(new Event("input", { bubbles: true }));
+            nameInput.dispatchEvent(new Event("change", { bubbles: true }));
         }
 
-        document.getElementById("email_to_downloads_next").click()
+        const emailInput = document.getElementById("email_address");
+        if (emailInput) {
+            emailInput.value = email;
+            emailInput.setAttribute("value", email);
+            emailInput.dispatchEvent(new Event("input", { bubbles: true }));
+            emailInput.dispatchEvent(new Event("change", { bubbles: true }));
+            emailInput.dispatchEvent(new Event("blur", { bubbles: true }));
+        }
+
+        const nextBtn = document.getElementById("email_to_downloads_next");
+        if (nextBtn) {
+            nextBtn.click();
+        }
     }
 
     window.handleTikTok = function () {
@@ -969,94 +1006,74 @@
         document.getElementById("skipper_bc").click()
     }
 
-    const targetNode = document.getElementById("myCarousel")
+    if (window.location.host.includes("hypeddit.com")) {
+        let prevStepContent = null;
+        let lastHandledTime = 0;
 
-    if (targetNode) {
-        const config = { attributes: true, childList: true, subtree: true }
+        const processHypedditStep = () => {
+            const stepContent = document.querySelector(
+                ".fangate-slider-content.current-slide, .fangate-slider-content:not(.move-left)"
+            );
+            if (!stepContent) return;
 
-        let prevStepContent = null
-        const callback = (mutationList, observer) => {
-            for (const mutation of mutationList) {
-                if (mutation.type === "attributes") {
-                    const stepContent = document.querySelector(
-                        ".fangate-slider-content:not(.move-left)"
-                    )
-
-                    if (stepContent !== prevStepContent) {
-                        const stepClassList = stepContent.classList
-
-                        if (stepClassList.contains("sp|ig|email")) {
-                            window.handleMultiPortal()
-                        }
-
-                        if (stepClassList.contains("email|sc")) {
-                            window.handleEmailSoundCloud()
-                        }
-
-                        if (stepClassList.contains("sc|yt")) {
-                            window.handleSoundCloudYoutube()
-                        }
-
-                        if (stepClassList.contains("dn")) {
-                            window.handleDonate()
-                        }
-
-                        if (stepClassList.contains("sc")) {
-                            window.handleSoundCloud()
-                        }
-
-                        if (stepClassList.contains("ig")) {
-                            window.handleInstagram()
-                        }
-
-                        if (stepClassList.contains("dw")) {
-                            window.handleDownload()
-                        }
-
-                        if (stepClassList.contains("yt")) {
-                            window.handleYoutube()
-                        }
-
-                        if (stepClassList.contains("sp")) {
-                            window.handleSpotify()
-                        }
-
-                        if (stepClassList.contains("email")) {
-                            window.handleEmail()
-                        }
-
-                        if (stepClassList.contains("tk")) {
-                            window.handleTikTok()
-                        }
-
-                        if (stepClassList.contains("fb")) {
-                            window.handleFacebook()
-                        }
-
-                        if (stepClassList.contains("mc")) {
-                            window.handleMixcloud()
-                        }
-
-                        if(stepClassList.contains("bc")) {
-                           window.handleBandCamp()
-                        }
-                    }
-
-                    prevStepContent = stepContent
-                }
+            const now = Date.now();
+            if (stepContent === prevStepContent && now - lastHandledTime < 1500) {
+                return;
             }
+
+            const stepClassList = stepContent.classList;
+            lastHandledTime = now;
+            prevStepContent = stepContent;
+
+            if (stepClassList.contains("sp|ig|email")) {
+                window.handleMultiPortal();
+            } else if (stepClassList.contains("email|sc")) {
+                window.handleEmailSoundCloud();
+            } else if (stepClassList.contains("sc|yt")) {
+                window.handleSoundCloudYoutube();
+            } else if (stepClassList.contains("dn")) {
+                window.handleDonate();
+            } else if (stepClassList.contains("sc")) {
+                window.handleSoundCloud();
+            } else if (stepClassList.contains("ig")) {
+                window.handleInstagram();
+            } else if (stepClassList.contains("dw")) {
+                window.handleDownload();
+            } else if (stepClassList.contains("yt")) {
+                window.handleYoutube();
+            } else if (stepClassList.contains("sp")) {
+                window.handleSpotify();
+            } else if (stepClassList.contains("email")) {
+                window.handleEmail();
+            } else if (stepClassList.contains("tk")) {
+                window.handleTikTok();
+            } else if (stepClassList.contains("fb")) {
+                window.handleFacebook();
+            } else if (stepClassList.contains("mc")) {
+                window.handleMixcloud();
+            } else if (stepClassList.contains("bc")) {
+                window.handleBandCamp();
+            }
+        };
+
+        const targetNode = document.getElementById("myCarousel");
+        if (targetNode) {
+            const config = { attributes: true, childList: true, subtree: true };
+            const observer = new MutationObserver(() => {
+                processHypedditStep();
+            });
+            observer.observe(targetNode, config);
         }
 
-        const observer = new MutationObserver(callback)
+        // Active interval fallback so steps never get stuck even if mutations don't fire
+        setInterval(processHypedditStep, 500);
 
-        observer.observe(targetNode, config)
+        const _start = () => {
+            const dlBtn = document.getElementById("downloadProcess");
+            if (dlBtn) dlBtn.click();
+            processHypedditStep();
+        };
+
+        window.setTimeout(_start, 800);
     }
-
-    const _start = () => {
-        if (document.getElementById("downloadProcess") !== null) {
-            document.getElementById("downloadProcess").click()
-        }
-    }
-
-    window.setTimeout(_start, 800)
 })()
