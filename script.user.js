@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Hypeddit DownloadWallBypasser Reloaded
 // @namespace    https://github.com/frandj99/Downloadwall-bypasser-Frandj
-// @version      2026.10.22.1
+// @version      2026.10.29.1
 // @description  Bypass Hypeddit, PumpYourSound, and Droploud download fangates automatically. Soundcloud and Spotify accounts are mandatory!
 // @author       fan1200, frandj99
 // @match        *://hypeddit.com/*
@@ -895,12 +895,12 @@
             if (skipperChannel) skipperChannel.click();
 
             const skipper = document.getElementById(skipperId);
-            if (skipper) skipper.click();
-
-            setTimeout(() => {
-                const s = document.getElementById(skipperId);
-                if (s) s.click();
-            }, 300);
+            if (skipper) {
+                const currentSlide = skipper.closest(".fangate-slider-content");
+                if (!currentSlide || !currentSlide.classList.contains("move-left")) {
+                    skipper.click();
+                }
+            }
         }
     }
 
@@ -1012,7 +1012,7 @@
 
         const processHypedditStep = () => {
             const stepContent = document.querySelector(
-                ".fangate-slider-content.current-slide, .fangate-slider-content:not(.move-left)"
+                ".fangate-slider-content:not(.move-left)"
             );
             if (!stepContent) return;
 
