@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Hypeddit DownloadWallBypasser Reloaded
 // @namespace    https://github.com/frandj99/Downloadwall-bypasser-Frandj
-// @version      2026.10.29.2
+// @version      2026.10.29.3
 // @description  Bypass Hypeddit, PumpYourSound, and Droploud download fangates automatically. Soundcloud and Spotify accounts are mandatory!
 // @author       fan1200, frandj99
 // @match        *://hypeddit.com/*
@@ -204,143 +204,161 @@
             element.dispatchEvent(new Event('blur', { bubbles: true }));
         };
 
+        let isHandlingDroploud = false;
+        let lastDroploudRun = 0;
+        let cachedDroploudScUrl = null;
+
         const handleDroploud = function () {
             const now = Date.now();
-            const activeContainer = document.querySelector('.dtr-stage, .dtr-card-pane, .dtr-track-info');
+            if (isHandlingDroploud || now - lastDroploudRun < 400) return;
+            isHandlingDroploud = true;
+            lastDroploudRun = now;
 
-            // Track identification and session state management
-            const trackIdMatch = window.location.pathname.match(/\/track\/([a-zA-Z0-9-]+)/);
-            const currentTrackId = trackIdMatch ? trackIdMatch[1] : window.location.pathname;
-            if (window.currentTrackId !== currentTrackId) {
-                window.currentTrackId = currentTrackId;
-                setStored("fangate_current_track_id", currentTrackId);
-                window.hasClickedFinalDownload = false;
-                window.lastOpenedScTrack = 0;
-                window.lastFreeDlClick = 0;
-            }
+            try {
+                const activeContainer = document.querySelector('.dtr-stage, .dtr-card-pane, .dtr-track-info');
 
-            // Extract SoundCloud track URL from page data or links
-            const getDroploudScTrackUrl = () => {
-                try {
-                    const html = document.documentElement.innerHTML;
-                    const m = html.match(/"soundcloud_url"\s*:\s*"(https?:\\\/\\\/[^"]+|https?:\/\/[^"]+)"/);
-                    if (m) {
-                        return m[1].replace(/\\\//g, "/");
-                    }
-                } catch(e) {}
-                const openBtn = Array.from(document.querySelectorAll('.dtr-stage button, .dtr-stage a, .dtr-card-pane button, .dtr-card-pane a')).find(btn => {
-                    const txt = (btn.textContent || "").toLowerCase();
-                    const href = (btn.getAttribute('href') || btn.href || "").toLowerCase();
-                    return href.includes("soundcloud.com") || txt.includes("open track on soundcloud");
-                });
-                if (openBtn) {
-                    const href = openBtn.getAttribute('href') || openBtn.href;
-                    if (href && href.includes("soundcloud.com")) return href;
+                // Track identification and session state management
+                const trackIdMatch = window.location.pathname.match(/\/track\/([a-zA-Z0-9-]+)/);
+                const currentTrackId = trackIdMatch ? trackIdMatch[1] : window.location.pathname;
+                if (window.currentTrackId !== currentTrackId) {
+                    window.currentTrackId = currentTrackId;
+                    setStored("fangate_current_track_id", currentTrackId);
+                    window.hasClickedFinalDownload = false;
+                    window.lastOpenedScTrack = 0;
+                    window.lastFreeDlClick = 0;
+                    cachedDroploudScUrl = null;
                 }
-                const scLinks = Array.from(document.querySelectorAll('a[href*="soundcloud.com"]'));
-                for (const a of scLinks) {
+
+                // Extract SoundCloud track URL from page data or links
+                const getDroploudScTrackUrl = () => {
+                    if (cachedDroploudScUrl) return cachedDroploudScUrl;
                     try {
-                        const u = new URL(a.href);
-                        const parts = u.pathname.split('/').filter(Boolean);
-                        if (parts.length >= 2 && !['connect', 'authorize', 'pages', 'terms', 'privacy'].includes(parts[0])) {
-                            return a.href;
+                        const scriptTags = document.querySelectorAll('script');
+                        for (const s of scriptTags) {
+                            const text = s.textContent || "";
+                            if (text.includes("soundcloud_url")) {
+                                const m = text.match(/"soundcloud_url"\s*:\s*"(https?:\\\/\\\/[^"]+|https?:\/\/[^"]+)"/);
+                                if (m) {
+                                    cachedDroploudScUrl = m[1].replace(/\\\//g, "/");
+                                    return cachedDroploudScUrl;
+                                }
+                            }
                         }
                     } catch(e) {}
-                }
-                return null;
-            };
-
-            // 1. Initial "FREE DOWNLOAD" button:
-            // Continually click with throttle until the gate enters steps or unlock screen (solves React SSR hydration race)
-            const isGateActive = !!document.querySelector('.dtr-card-pane-step, .dtr-social-wrap, .dtr-email-wrap, .dtr-card-check');
-            if (!isGateActive) {
-                const freeDlBtn = Array.from(document.querySelectorAll('button')).find(btn => {
-                    const txt = (btn.textContent || "").trim().toUpperCase();
-                    return (txt.includes("FREE DOWNLOAD") || btn.classList.contains("dtr-card-cta")) &&
-                           !txt.includes("PREPARING") && !btn.disabled;
-                });
-                if (freeDlBtn) {
-                    if (!window.lastFreeDlClick || now - window.lastFreeDlClick > 1000) {
-                        window.lastFreeDlClick = now;
-                        console.info("Clicking FREE DOWNLOAD button (retrying until gate opens)...");
-                        freeDlBtn.click();
+                    const openBtn = Array.from(document.querySelectorAll('.dtr-stage button, .dtr-stage a, .dtr-card-pane button, .dtr-card-pane a')).find(btn => {
+                        const txt = (btn.textContent || "").toLowerCase();
+                        const href = (btn.getAttribute('href') || btn.href || "").toLowerCase();
+                        return href.includes("soundcloud.com") || txt.includes("open track on soundcloud");
+                    });
+                    if (openBtn) {
+                        const href = openBtn.getAttribute('href') || openBtn.href;
+                        if (href && href.includes("soundcloud.com")) {
+                            cachedDroploudScUrl = href;
+                            return href;
+                        }
+                    }
+                    const scLinks = Array.from(document.querySelectorAll('a[href*="soundcloud.com"]'));
+                    for (const a of scLinks) {
                         try {
-                            freeDlBtn.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, view: window }));
+                            const u = new URL(a.href);
+                            const parts = u.pathname.split('/').filter(Boolean);
+                            if (parts.length >= 2 && !['connect', 'authorize', 'pages', 'terms', 'privacy'].includes(parts[0])) {
+                                cachedDroploudScUrl = a.href;
+                                return a.href;
+                            }
                         } catch(e) {}
                     }
-                    return;
-                }
-            }
+                    return null;
+                };
 
-            // 2. Email step handling
-            const emailInput = document.querySelector('.dtr-stage input[type="email"], .dtr-card-pane input[type="email"], input[type="email"]');
-            if (emailInput && (emailInput.value !== window.hypedditSettings.email || !emailInput.dataset.typed)) {
-                emailInput.dataset.typed = "true";
-                console.info("Simulating typing for Droploud email");
-                simulateTyping(emailInput, window.hypedditSettings.email);
-            }
-
-            const consentCheckbox = document.querySelector('.dtr-stage input[type="checkbox"]:not(:checked), .dtr-card-pane input[type="checkbox"]:not(:checked)');
-            if (consentCheckbox) {
-                console.info("Checking consent checkbox");
-                consentCheckbox.click();
-            }
-
-            const emailContinueBtn = Array.from(document.querySelectorAll('.dtr-stage button, .dtr-card-pane button')).find(btn => {
-                const txt = (btn.textContent || "").trim().toLowerCase();
-                return (txt.includes("continue") || txt.includes("next")) && !btn.disabled;
-            });
-            if (emailInput && emailInput.value && emailContinueBtn) {
-                if (!window.lastEmailContinueClick || now - window.lastEmailContinueClick > 2000) {
-                    window.lastEmailContinueClick = now;
-                    console.info("Clicking email Continue button");
-                    emailContinueBtn.click();
-                    return;
-                }
-            }
-
-            // 3. Social buttons (Instagram / SoundCloud / Spotify) strictly scoped to active card
-            if (activeContainer) {
-                const socialButtons = Array.from(activeContainer.querySelectorAll('button, a')).filter(el => {
-                    const href = (el.getAttribute('href') || el.href || "").toLowerCase();
-                    // Prevent clicking internal site navigation like creator cards / promo / nav links
-                    if (href.startsWith('/') || href.includes('droploud.com/creator') || href.includes('droploud.com/u/') || href.startsWith('mailto:')) return false;
-                    const txt = (el.textContent || "").trim().toLowerCase();
-                    if (txt.includes("open track on soundcloud") || txt.includes("reshare") || txt.includes("repost") || txt.includes("free download") || txt.includes("terms") || txt.includes("dmca")) return false;
-
-                    return (txt.includes("↗") || txt.includes("@") || href.includes("instagram.com") || href.includes("spotify.com") || href.includes("soundcloud.com")) &&
-                        !el.dataset.autoClicked && !el.disabled;
-                });
-
-                socialButtons.forEach(el => {
-                    el.dataset.autoClicked = "true";
-                    console.info("Triggering social link:", el.textContent.trim());
-                    try { el.click(); } catch(e) {}
-                });
-
-                const confirmBtn = Array.from(activeContainer.querySelectorAll('button')).find(btn =>
-                    (btn.textContent.includes("I did it") || btn.textContent.includes("I'm done") || btn.textContent.includes("Done")) && !btn.disabled
-                );
-                if (confirmBtn) {
-                    if (!window.lastConfirmClick || now - window.lastConfirmClick > 1500) {
-                        window.lastConfirmClick = now;
-                        console.info("Clicking 'I did it' button");
-                        confirmBtn.click();
+                // 1. Initial "FREE DOWNLOAD" button:
+                // Continually click with throttle until the gate enters steps or unlock screen (solves React SSR hydration race)
+                const isGateActive = !!document.querySelector('.dtr-card-pane-step, .dtr-social-wrap, .dtr-email-wrap, .dtr-card-check');
+                if (!isGateActive) {
+                    const freeDlBtn = Array.from(document.querySelectorAll('button')).find(btn => {
+                        const txt = (btn.textContent || "").trim().toUpperCase();
+                        return (txt.includes("FREE DOWNLOAD") || btn.classList.contains("dtr-card-cta")) &&
+                               !txt.includes("PREPARING") && !btn.disabled;
+                    });
+                    if (freeDlBtn) {
+                        if (!window.lastFreeDlClick || now - window.lastFreeDlClick > 1000) {
+                            window.lastFreeDlClick = now;
+                            console.info("Clicking FREE DOWNLOAD button (retrying until gate opens)...");
+                            freeDlBtn.click();
+                            try {
+                                freeDlBtn.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, view: window }));
+                            } catch(e) {}
+                        }
                         return;
                     }
                 }
-            }
 
-            // 4. SoundCloud step (with comment typing emulation and track repost handling)
-            const commentInput = document.querySelector('#dtr-sc-comment-input, textarea.ds-input, textarea[placeholder*="comment"], textarea');
-            const charCounter = Array.from(document.querySelectorAll('div, span, p')).find(el => /^\s*0\s*\/\s*\d+\s*$/.test(el.textContent));
-            const needsTyping = commentInput && (commentInput.value !== window.hypedditSettings.comment || !charCounter || !commentInput.dataset.typed);
+                // 2. Email step handling
+                const emailInput = document.querySelector('.dtr-stage input[type="email"], .dtr-card-pane input[type="email"], input[type="email"]');
+                if (emailInput && !emailInput.dataset.typed) {
+                    emailInput.dataset.typed = "true";
+                    console.info("Simulating typing for Droploud email");
+                    simulateTyping(emailInput, window.hypedditSettings.email);
+                }
 
-            if (needsTyping) {
-                commentInput.dataset.typed = "true";
-                console.info("Simulating typing for comment input");
-                simulateTyping(commentInput, window.hypedditSettings.comment);
-            }
+                const consentCheckbox = document.querySelector('.dtr-stage input[type="checkbox"]:not(:checked), .dtr-card-pane input[type="checkbox"]:not(:checked)');
+                if (consentCheckbox) {
+                    console.info("Checking consent checkbox");
+                    consentCheckbox.click();
+                }
+
+                const emailContinueBtn = Array.from(document.querySelectorAll('.dtr-stage button, .dtr-card-pane button')).find(btn => {
+                    const txt = (btn.textContent || "").trim().toLowerCase();
+                    return (txt.includes("continue") || txt.includes("next")) && !btn.disabled;
+                });
+                if (emailInput && emailInput.value && emailContinueBtn) {
+                    if (!window.lastEmailContinueClick || now - window.lastEmailContinueClick > 2000) {
+                        window.lastEmailContinueClick = now;
+                        console.info("Clicking email Continue button");
+                        emailContinueBtn.click();
+                        return;
+                    }
+                }
+
+                // 3. Social buttons (Instagram / SoundCloud / Spotify) strictly scoped to active card
+                if (activeContainer) {
+                    const socialButtons = Array.from(activeContainer.querySelectorAll('button, a')).filter(el => {
+                        const href = (el.getAttribute('href') || el.href || "").toLowerCase();
+                        // Prevent clicking internal site navigation like creator cards / promo / nav links
+                        if (href.startsWith('/') || href.includes('droploud.com/creator') || href.includes('droploud.com/u/') || href.startsWith('mailto:')) return false;
+                        const txt = (el.textContent || "").trim().toLowerCase();
+                        if (txt.includes("open track on soundcloud") || txt.includes("reshare") || txt.includes("repost") || txt.includes("free download") || txt.includes("terms") || txt.includes("dmca")) return false;
+
+                        return (txt.includes("↗") || txt.includes("@") || href.includes("instagram.com") || href.includes("spotify.com") || href.includes("soundcloud.com")) &&
+                            !el.dataset.autoClicked && !el.disabled;
+                    });
+
+                    socialButtons.forEach(el => {
+                        el.dataset.autoClicked = "true";
+                        console.info("Triggering social link:", el.textContent.trim());
+                        try { el.click(); } catch(e) {}
+                    });
+
+                    const confirmBtn = Array.from(activeContainer.querySelectorAll('button')).find(btn =>
+                        (btn.textContent.includes("I did it") || btn.textContent.includes("I'm done") || btn.textContent.includes("Done")) && !btn.disabled
+                    );
+                    if (confirmBtn) {
+                        if (!window.lastConfirmClick || now - window.lastConfirmClick > 1500) {
+                            window.lastConfirmClick = now;
+                            console.info("Clicking 'I did it' button");
+                            confirmBtn.click();
+                            return;
+                        }
+                    }
+                }
+
+                // 4. SoundCloud step (with comment typing emulation and track repost handling)
+                const commentInput = document.querySelector('#dtr-sc-comment-input, textarea.ds-input, textarea[placeholder*="comment"], textarea');
+                if (commentInput && !commentInput.dataset.typed) {
+                    commentInput.dataset.typed = "true";
+                    console.info("Simulating typing for comment input");
+                    simulateTyping(commentInput, window.hypedditSettings.comment);
+                }
 
             const connectScBtn = Array.from(document.querySelectorAll('.dtr-stage button, .dtr-card-pane button, button')).find(btn =>
                 btn.textContent.includes("Connect SoundCloud") && !btn.disabled
@@ -478,14 +496,12 @@
                         window.close();
                     }, timeout);
                 }
+            } finally {
+                isHandlingDroploud = false;
             }
         };
 
         setInterval(handleDroploud, 500);
-        const observer = new MutationObserver(handleDroploud);
-        if (document.body) {
-            observer.observe(document.body, { childList: true, subtree: true, attributes: true });
-        }
         return;
     }
 
