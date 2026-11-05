@@ -1,7 +1,7 @@
 # Hypeddit & Fangate DownloadWallBypasser (Reloaded)
 
 [![Install Userscript](https://img.shields.io/badge/Tampermonkey-Install%20Script-success?style=for-the-badge&logo=tampermonkey)](https://raw.githubusercontent.com/frandj99/Downloadwall-bypasser-Frandj/master/script.user.js)
-[![GitHub release](https://img.shields.io/badge/Release-2026.10.29-blue?style=for-the-badge)](https://github.com/frandj99/Downloadwall-bypasser-Frandj)
+[![GitHub release](https://img.shields.io/badge/Release-2026.11.05-blue?style=for-the-badge)](https://github.com/frandj99/Downloadwall-bypasser-Frandj)
 
 An automated userscript to bypass music download fangates across **Hypeddit**, **PumpYourSound**, and **Droploud**. It handles mandatory social actions, authorization popups, comments, and form steps automatically so you can grab track downloads without friction.
 

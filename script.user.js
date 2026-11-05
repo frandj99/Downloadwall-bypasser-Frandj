@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Hypeddit DownloadWallBypasser Reloaded
 // @namespace    https://github.com/frandj99/Downloadwall-bypasser-Frandj
-// @version      2026.10.29.3
+// @version      2026.11.05.1
 // @description  Bypass Hypeddit, PumpYourSound, and Droploud download fangates automatically. Soundcloud and Spotify accounts are mandatory!
 // @author       fan1200, frandj99
 // @match        *://hypeddit.com/*
@@ -204,6 +204,27 @@
             element.dispatchEvent(new Event('blur', { bubbles: true }));
         };
 
+        const setCheckboxChecked = function (cb, checked = true) {
+            if (!cb) return;
+            if (cb.checked !== checked) {
+                cb.click();
+            }
+            if (cb.checked !== checked) {
+                const proto = window.HTMLInputElement.prototype;
+                const nativeSetter = Object.getOwnPropertyDescriptor(proto, 'checked')?.set;
+                if (cb._valueTracker) {
+                    cb._valueTracker.setValue(!checked);
+                }
+                if (nativeSetter) {
+                    nativeSetter.call(cb, checked);
+                } else {
+                    cb.checked = checked;
+                }
+                cb.dispatchEvent(new Event('input', { bubbles: true }));
+                cb.dispatchEvent(new Event('change', { bubbles: true }));
+            }
+        };
+
         let isHandlingDroploud = false;
         let lastDroploudRun = 0;
         let cachedDroploudScUrl = null;
@@ -215,7 +236,7 @@
             lastDroploudRun = now;
 
             try {
-                const activeContainer = document.querySelector('.dtr-stage, .dtr-card-pane, .dtr-track-info');
+                const activeContainer = document.querySelector('.dltg-stage, .ds-gate-card, .ds-gate-pane, .ds-panel, .dtr-stage, .dtr-card-pane, .dtr-track-info');
 
                 // Track identification and session state management
                 const trackIdMatch = window.location.pathname.match(/\/track\/([a-zA-Z0-9-]+)/);
@@ -237,15 +258,15 @@
                         for (const s of scriptTags) {
                             const text = s.textContent || "";
                             if (text.includes("soundcloud_url")) {
-                                const m = text.match(/"soundcloud_url"\s*:\s*"(https?:\\\/\\\/[^"]+|https?:\/\/[^"]+)"/);
+                                const m = text.match(/soundcloud_url\\*["']?\s*:\s*\\*["']?(https?:[a-zA-Z0-9_\/.:-]+)/);
                                 if (m) {
-                                    cachedDroploudScUrl = m[1].replace(/\\\//g, "/");
+                                    cachedDroploudScUrl = m[1].replace(/\\/g, "");
                                     return cachedDroploudScUrl;
                                 }
                             }
                         }
                     } catch(e) {}
-                    const openBtn = Array.from(document.querySelectorAll('.dtr-stage button, .dtr-stage a, .dtr-card-pane button, .dtr-card-pane a')).find(btn => {
+                    const openBtn = Array.from(document.querySelectorAll('.dltg-stage button, .dltg-stage a, .ds-gate-pane button, .ds-gate-pane a, .dtr-stage button, .dtr-stage a, .dtr-card-pane button, .dtr-card-pane a')).find(btn => {
                         const txt = (btn.textContent || "").toLowerCase();
                         const href = (btn.getAttribute('href') || btn.href || "").toLowerCase();
                         return href.includes("soundcloud.com") || txt.includes("open track on soundcloud");
@@ -271,9 +292,8 @@
                     return null;
                 };
 
-                // 1. Initial "FREE DOWNLOAD" button:
-                // Continually click with throttle until the gate enters steps or unlock screen (solves React SSR hydration race)
-                const isGateActive = !!document.querySelector('.dtr-card-pane-step, .dtr-social-wrap, .dtr-email-wrap, .dtr-card-check');
+                // 1. Initial "FREE DOWNLOAD" button (for legacy pages where gate has not started yet):
+                const isGateActive = !!document.querySelector('.dltg-stage, .ds-gate-card, .ds-gate-pane, .dtr-card-pane-step, .dtr-social-wrap, .dtr-email-wrap, .dtr-card-check');
                 if (!isGateActive) {
                     const freeDlBtn = Array.from(document.querySelectorAll('button')).find(btn => {
                         const txt = (btn.textContent || "").trim().toUpperCase();
@@ -294,40 +314,73 @@
                 }
 
                 // 2. Email step handling
-                const emailInput = document.querySelector('.dtr-stage input[type="email"], .dtr-card-pane input[type="email"], input[type="email"]');
-                if (emailInput && !emailInput.dataset.typed) {
+                const emailInput = document.querySelector('input#dltg-email, .dltg-stage input[type="email"], .ds-gate-pane input[type="email"], .dtr-stage input[type="email"], input[type="email"]');
+                if (emailInput && (!emailInput.value || !emailInput.dataset.typed)) {
                     emailInput.dataset.typed = "true";
                     console.info("Simulating typing for Droploud email");
                     simulateTyping(emailInput, window.hypedditSettings.email);
                 }
 
-                const consentCheckbox = document.querySelector('.dtr-stage input[type="checkbox"]:not(:checked), .dtr-card-pane input[type="checkbox"]:not(:checked)');
+                const consentCheckbox = document.querySelector('.dltg-stage input[type="checkbox"]:not(:checked), .ds-gate-pane input[type="checkbox"]:not(:checked), input[name="consent"]:not(:checked), input[type="checkbox"]:not(:checked)');
                 if (consentCheckbox) {
                     console.info("Checking consent checkbox");
-                    consentCheckbox.click();
+                    setCheckboxChecked(consentCheckbox, true);
                 }
 
-                const emailContinueBtn = Array.from(document.querySelectorAll('.dtr-stage button, .dtr-card-pane button')).find(btn => {
+                const emailContinueBtn = Array.from(document.querySelectorAll('.dltg-stage button, .ds-gate-pane button, form button[type="submit"], .dtr-stage button, .dtr-card-pane button')).find(btn => {
                     const txt = (btn.textContent || "").trim().toLowerCase();
-                    return (txt.includes("continue") || txt.includes("next")) && !btn.disabled;
+                    const isSubmit = btn.type === "submit" || btn.classList.contains("ds-gate-wide");
+                    return (txt.includes("continue") || txt.includes("next") || (isSubmit && txt.includes("free download")));
                 });
                 if (emailInput && emailInput.value && emailContinueBtn) {
-                    if (!window.lastEmailContinueClick || now - window.lastEmailContinueClick > 2000) {
+                    if (emailContinueBtn.disabled) {
+                        emailInput.dispatchEvent(new Event('input', { bubbles: true }));
+                        emailInput.dispatchEvent(new Event('change', { bubbles: true }));
+                        if (consentCheckbox) setCheckboxChecked(consentCheckbox, true);
+                    } else if (!window.lastEmailContinueClick || now - window.lastEmailContinueClick > 1500) {
                         window.lastEmailContinueClick = now;
-                        console.info("Clicking email Continue button");
+                        console.info("Clicking email Continue/Submit button:", emailContinueBtn.textContent.trim());
                         emailContinueBtn.click();
+                        try { emailContinueBtn.form?.requestSubmit(); } catch(err) {}
                         return;
                     }
                 }
 
-                // 3. Social buttons (Instagram / SoundCloud / Spotify) strictly scoped to active card
+                // 3. Honor steps (Instagram, Droploud follow, Spotify, Twitter etc.)
+                const honorList = document.querySelector('.ds-honor-list');
+                if (honorList) {
+                    const openBtns = Array.from(honorList.querySelectorAll('.ds-honor-row:not(.is-done) button, .ds-honor-row:not(.is-done) a')).filter(el => {
+                        const txt = (el.textContent || "").trim().toLowerCase();
+                        return (txt === "open" || txt === "open here" || el.querySelector('svg')) && !el.dataset.autoClicked;
+                    });
+                    openBtns.forEach(el => {
+                        el.dataset.autoClicked = "true";
+                        console.info("Opening honor step link:", el.textContent.trim() || el.title);
+                        try { el.click(); } catch(e) {}
+                    });
+
+                    const honorGoBtn = document.querySelector('button[data-honor-go], button.ds-solid[data-honor-go]') ||
+                        Array.from(document.querySelectorAll('.ds-gate-card button, .ds-gate-pane button, .ds-panel button, .dltg-stage button')).find(btn => {
+                            const txt = (btn.textContent || "").trim().toLowerCase();
+                            return (txt.includes("i've done it") || txt.includes("i did it") || txt.includes("i'm done") || txt === "done") && !btn.disabled && !btn.classList.contains("ds-disabled");
+                        });
+                    if (honorGoBtn && !honorGoBtn.disabled && !honorGoBtn.classList.contains("ds-disabled")) {
+                        if (!window.lastHonorGoClick || now - window.lastHonorGoClick > 1500) {
+                            window.lastHonorGoClick = now;
+                            console.info("Clicking I've done it button");
+                            honorGoBtn.click();
+                            return;
+                        }
+                    }
+                }
+
+                // 4. Social buttons strictly scoped to active card (legacy/fallback)
                 if (activeContainer) {
                     const socialButtons = Array.from(activeContainer.querySelectorAll('button, a')).filter(el => {
                         const href = (el.getAttribute('href') || el.href || "").toLowerCase();
-                        // Prevent clicking internal site navigation like creator cards / promo / nav links
                         if (href.startsWith('/') || href.includes('droploud.com/creator') || href.includes('droploud.com/u/') || href.startsWith('mailto:')) return false;
                         const txt = (el.textContent || "").trim().toLowerCase();
-                        if (txt.includes("open track on soundcloud") || txt.includes("reshare") || txt.includes("repost") || txt.includes("free download") || txt.includes("terms") || txt.includes("dmca")) return false;
+                        if (txt.includes("open track on soundcloud") || txt.includes("reshare") || txt.includes("repost") || txt.includes("free download") || txt.includes("terms") || txt.includes("dmca") || txt.includes("privacy")) return false;
 
                         return (txt.includes("↗") || txt.includes("@") || href.includes("instagram.com") || href.includes("spotify.com") || href.includes("soundcloud.com")) &&
                             !el.dataset.autoClicked && !el.disabled;
@@ -339,162 +392,170 @@
                         try { el.click(); } catch(e) {}
                     });
 
-                    const confirmBtn = Array.from(activeContainer.querySelectorAll('button')).find(btn =>
-                        (btn.textContent.includes("I did it") || btn.textContent.includes("I'm done") || btn.textContent.includes("Done")) && !btn.disabled
-                    );
+                    const confirmBtn = Array.from(activeContainer.querySelectorAll('button')).find(btn => {
+                        const txt = (btn.textContent || "").trim().toLowerCase();
+                        return (txt.includes("i've done it") || txt.includes("i did it") || txt.includes("i'm done") || txt.includes("done")) && !btn.disabled && !btn.classList.contains("ds-disabled");
+                    });
                     if (confirmBtn) {
                         if (!window.lastConfirmClick || now - window.lastConfirmClick > 1500) {
                             window.lastConfirmClick = now;
-                            console.info("Clicking 'I did it' button");
+                            console.info("Clicking confirm button:", confirmBtn.textContent.trim());
                             confirmBtn.click();
                             return;
                         }
                     }
                 }
 
-                // 4. SoundCloud step (with comment typing emulation and track repost handling)
-                const commentInput = document.querySelector('#dtr-sc-comment-input, textarea.ds-input, textarea[placeholder*="comment"], textarea');
+                // 5. SoundCloud step (with comment typing emulation and track repost handling)
+                const commentInput = document.querySelector('#dltg-sc-comment, #dtr-sc-comment-input, input[name="comment"], textarea[name="comment"], textarea.ds-input, textarea[placeholder*="comment"], textarea');
                 if (commentInput && !commentInput.dataset.typed) {
                     commentInput.dataset.typed = "true";
                     console.info("Simulating typing for comment input");
                     simulateTyping(commentInput, window.hypedditSettings.comment);
                 }
 
-            const connectScBtn = Array.from(document.querySelectorAll('.dtr-stage button, .dtr-card-pane button, button')).find(btn =>
-                btn.textContent.includes("Connect SoundCloud") && !btn.disabled
-            );
-            if (connectScBtn) {
-                if (!window.lastConnectScClick || now - window.lastConnectScClick > 4000) {
-                    window.lastConnectScClick = now;
-                    console.info("Clicking Connect SoundCloud");
-                    connectScBtn.click();
-                    return;
+                const connectScBtn = Array.from(document.querySelectorAll('button')).find(btn => {
+                    const txt = (btn.textContent || "").trim().toLowerCase();
+                    const isScBtn = btn.classList.contains("ds-sc-btn") ||
+                                    txt.includes("connect with soundcloud") ||
+                                    txt.includes("connect soundcloud") ||
+                                    (txt.includes("connect with") && (btn.querySelector('svg, img') || txt.includes("soundcloud")));
+                    return isScBtn && !btn.disabled;
+                });
+                if (connectScBtn) {
+                    if (!window.lastConnectScClick || now - window.lastConnectScClick > 3000) {
+                        window.lastConnectScClick = now;
+                        console.info("Clicking Connect SoundCloud");
+                        connectScBtn.click();
+                        return;
+                    }
                 }
-            }
 
-            // Proactive SoundCloud track reposting:
-            // Ensure track is opened on SoundCloud and reposted to pass Droploud verification
-            const repostKey = "repost_done_" + currentTrackId;
-            const isTrackRepostDone = getStored(repostKey, false);
-            const isScStep = !!document.querySelector('#dtr-sc-comment-input, .dtr-sc-copy, .dtr-sc-confirm, .dtr-repost-chip, .dtr-action-row');
+                // Proactive SoundCloud track reposting:
+                // Ensure track is opened on SoundCloud and reposted to pass Droploud verification
+                const repostKey = "repost_done_" + currentTrackId;
+                const isTrackRepostDone = getStored(repostKey, false);
+                const isScStep = !!document.querySelector('#dltg-sc-comment, .dltg-sc-start, .dltg-sc-rows, #dtr-sc-comment-input, .dtr-sc-copy, .dtr-sc-confirm, .dtr-repost-chip, .dtr-action-row');
 
-            const openScTrackBtn = Array.from(document.querySelectorAll('.dtr-stage button, .dtr-stage a, .dtr-card-pane button, .dtr-card-pane a, button, a')).find(btn => {
-                const txt = (btn.textContent || "").trim().toLowerCase();
-                const href = (btn.getAttribute('href') || btn.href || "").toLowerCase();
-                const isScTrack = href.includes("soundcloud.com") && !href.includes("/connect") && !href.includes("/authorize");
-                const isReshareText = txt.includes("open track on soundcloud") ||
-                                      txt.includes("open on soundcloud") ||
-                                      txt.includes("reshare") ||
-                                      txt.includes("repost") ||
-                                      txt.includes("share track");
-                return (isReshareText || isScTrack) &&
-                       !txt.includes("verify") && !txt.includes("reposted") && !txt.includes("reshared") && !txt.includes("connect soundcloud") && !btn.disabled;
-            });
+                const openScTrackBtn = Array.from(document.querySelectorAll('button, a')).find(btn => {
+                    const txt = (btn.textContent || "").trim().toLowerCase();
+                    const href = (btn.getAttribute('href') || btn.href || "").toLowerCase();
+                    const isScTrack = href.includes("soundcloud.com") && !href.includes("/connect") && !href.includes("/authorize");
+                    const isReshareText = txt.includes("open track on soundcloud") ||
+                                          txt.includes("open on soundcloud") ||
+                                          txt.includes("reshare") ||
+                                          txt.includes("repost") ||
+                                          txt.includes("share track");
+                    return (isReshareText || isScTrack) &&
+                           !txt.includes("verify") && !txt.includes("reposted") && !txt.includes("reshared") && !txt.includes("connect") && !btn.disabled;
+                });
 
-            if ((openScTrackBtn || (isScStep && !isTrackRepostDone)) && !isTrackRepostDone) {
-                if (!window.lastOpenedScTrack || now - window.lastOpenedScTrack > 12000) {
-                    window.lastOpenedScTrack = now;
-                    const scTrackUrl = getDroploudScTrackUrl() || (openScTrackBtn ? (openScTrackBtn.getAttribute('href') || openScTrackBtn.href) : null);
-                    if (scTrackUrl) {
-                        setStored("fangate_repost_time", Date.now());
-                        setStored("fangate_repost_track", scTrackUrl);
-                        setStored("fangate_current_track_id", currentTrackId);
+                if ((openScTrackBtn || (isScStep && !isTrackRepostDone)) && !isTrackRepostDone) {
+                    if (!window.lastOpenedScTrack || now - window.lastOpenedScTrack > 10000) {
+                        window.lastOpenedScTrack = now;
+                        const scTrackUrl = getDroploudScTrackUrl() || (openScTrackBtn ? (openScTrackBtn.getAttribute('href') || openScTrackBtn.href) : null);
+                        if (scTrackUrl) {
+                            setStored("fangate_repost_time", Date.now());
+                            setStored("fangate_repost_track", scTrackUrl);
+                            setStored("fangate_current_track_id", currentTrackId);
 
-                        console.info("Opening SoundCloud track for repost & like:", scTrackUrl);
-                        const targetUrl = scTrackUrl.includes("#fangate_repost") ? scTrackUrl : scTrackUrl + "#fangate_repost";
-                        if (typeof GM_openInTab !== "undefined") {
-                            GM_openInTab(targetUrl, { active: false, insert: true });
-                        } else {
-                            window.open(targetUrl, "_blank");
+                            console.info("Opening SoundCloud track for repost & like:", scTrackUrl);
+                            const targetUrl = scTrackUrl.includes("#fangate_repost") ? scTrackUrl : scTrackUrl + "#fangate_repost";
+                            if (typeof GM_openInTab !== "undefined") {
+                                GM_openInTab(targetUrl, { active: false, insert: true });
+                            } else {
+                                window.open(targetUrl, "_blank");
+                            }
+                        }
+                        if (openScTrackBtn) {
+                            console.info("Triggering Droploud Open track button");
+                            try { openScTrackBtn.click(); } catch(e) {}
                         }
                     }
-                    if (openScTrackBtn) {
-                        console.info("Triggering Droploud Open track button");
-                        try { openScTrackBtn.click(); } catch(e) {}
+                }
+
+                const verifyRepostBtn = Array.from(document.querySelectorAll('button')).find(btn => {
+                    const txt = (btn.textContent || "").trim().toLowerCase();
+                    return (txt === "verify" ||
+                            txt === "verify again" ||
+                            txt.includes("verify") ||
+                            txt.includes("reposted") ||
+                            txt.includes("reshared") ||
+                            txt.includes("i've reposted") ||
+                            txt.includes("i've reshared") ||
+                            txt.includes("check repost") ||
+                            txt.includes("i did both") ||
+                            txt.includes("i liked it too")) && !btn.disabled && btn.getAttribute('aria-disabled') !== "true" && !btn.classList.contains("ds-disabled");
+                });
+                if (verifyRepostBtn) {
+                    const interval = isTrackRepostDone ? 1500 : 3000;
+                    if (!window.lastVerifyClick || now - window.lastVerifyClick > interval) {
+                        window.lastVerifyClick = now;
+                        console.info("Clicking Verify Repost:", verifyRepostBtn.textContent.trim());
+                        verifyRepostBtn.click();
+                        return;
                     }
                 }
-            }
 
-            const verifyRepostBtn = Array.from(document.querySelectorAll('.dtr-stage button, .dtr-card-pane button, button')).find(btn => {
-                const txt = (btn.textContent || "").trim().toLowerCase();
-                return (txt.includes("verify") ||
-                        txt.includes("reposted") ||
-                        txt.includes("reshared") ||
-                        txt.includes("i've reposted") ||
-                        txt.includes("i've reshared") ||
-                        txt.includes("check repost") ||
-                        txt.includes("i did both") ||
-                        txt.includes("i liked it too")) && !btn.disabled;
-            });
-            if (verifyRepostBtn) {
-                const interval = isTrackRepostDone ? 1500 : 3000;
-                if (!window.lastVerifyClick || now - window.lastVerifyClick > interval) {
-                    window.lastVerifyClick = now;
-                    console.info("Clicking Verify Repost:", verifyRepostBtn.textContent.trim());
-                    verifyRepostBtn.click();
+                const continueAnywayBtn = Array.from(document.querySelectorAll('button')).find(btn => {
+                    const txt = (btn.textContent || "").trim().toLowerCase();
+                    return (txt === "continue" || txt === "continue anyway" || txt.includes("continue anyway")) && !btn.disabled && btn.getAttribute('aria-disabled') !== "true" && !btn.classList.contains("ds-disabled");
+                });
+                if (continueAnywayBtn) {
+                    if (!window.lastContinueAnywayClick || now - window.lastContinueAnywayClick > 2000) {
+                        window.lastContinueAnywayClick = now;
+                        console.info("Clicking Continue / Continue anyway");
+                        continueAnywayBtn.click();
+                        return;
+                    }
+                }
+
+                // 6. Spotify step
+                const connectSpotifyBtn = Array.from(document.querySelectorAll('button')).find(btn =>
+                    (btn.textContent.toLowerCase().includes("connect spotify") || btn.textContent.toLowerCase().includes("follow on spotify") || btn.textContent.toLowerCase().includes("spotify connect")) && !btn.disabled
+                );
+                if (connectSpotifyBtn) {
+                    if (!window.lastConnectSpotifyClick || now - window.lastConnectSpotifyClick > 5000) {
+                        window.lastConnectSpotifyClick = now;
+                        console.info("Clicking Connect Spotify");
+                        connectSpotifyBtn.click();
+                        return;
+                    }
+                }
+
+                // 7. Generic Continue / Follow / Skip
+                const generalContinueBtn = Array.from(document.querySelectorAll('button')).find(btn => {
+                    const txt = (btn.textContent || "").trim().toLowerCase();
+                    return (txt.includes("continue") || txt.includes("i'm done") || txt.includes("follow on droploud") || txt.includes("skip")) && !btn.disabled && !btn.dataset.autoClicked;
+                });
+                if (generalContinueBtn) {
+                    generalContinueBtn.dataset.autoClicked = "true";
+                    console.info("Clicking Droploud Continue/Skip/Follow step:", generalContinueBtn.textContent.trim());
+                    generalContinueBtn.click();
                     return;
                 }
-            }
 
-            const continueAnywayBtn = Array.from(document.querySelectorAll('.dtr-stage button, .dtr-card-pane button, button')).find(btn => {
-                const txt = (btn.textContent || "").trim().toLowerCase();
-                return txt.includes("continue anyway") && !btn.disabled;
-            });
-            if (continueAnywayBtn) {
-                if (!window.lastContinueAnywayClick || now - window.lastContinueAnywayClick > 2000) {
-                    window.lastContinueAnywayClick = now;
-                    console.info("Clicking Continue anyway");
-                    continueAnywayBtn.click();
-                    return;
-                }
-            }
+                // 8. Final DOWNLOAD button when unlocked
+                const finalDownloadBtn = Array.from(document.querySelectorAll('button, a')).find(btn => {
+                    const txt = (btn.textContent || "").trim().toLowerCase();
+                    const href = (btn.getAttribute('href') || "").toLowerCase();
+                    const isUnlocked = !!document.querySelector('.ds-glyph.ds-up, #dltg-card-t, .dtr-card-check') &&
+                                       document.body.textContent.toLowerCase().includes("download unlocked");
+                    const isDlText = txt === "download" || txt === "download file" || txt.includes("download now") || (isUnlocked && txt === "download");
+                    const isDlHref = href.includes("/api/download") || href.includes("r2.dev") || href.includes("drive.google");
+                    return (isDlText || isDlHref) && !btn.disabled && !txt.includes("free download") && !txt.includes("starting your download") && !txt.includes("preparing");
+                });
+                if (finalDownloadBtn && !window.hasClickedFinalDownload) {
+                    window.hasClickedFinalDownload = true;
+                    console.info("Clicking Final DOWNLOAD button");
+                    finalDownloadBtn.click();
 
-            // 5. Spotify step
-            const connectSpotifyBtn = Array.from(document.querySelectorAll('.dtr-stage button, .dtr-card-pane button, button')).find(btn =>
-                (btn.textContent.toLowerCase().includes("connect spotify") || btn.textContent.toLowerCase().includes("follow on spotify") || btn.textContent.toLowerCase().includes("spotify connect")) && !btn.disabled
-            );
-            if (connectSpotifyBtn) {
-                if (!window.lastConnectSpotifyClick || now - window.lastConnectSpotifyClick > 5000) {
-                    window.lastConnectSpotifyClick = now;
-                    console.info("Clicking Connect Spotify");
-                    connectSpotifyBtn.click();
-                    return;
-                }
-            }
-
-            // 6. Generic Continue / Follow / Skip
-            const generalContinueBtn = Array.from(document.querySelectorAll('.dtr-stage button, .dtr-card-pane button')).find(btn => {
-                const txt = (btn.textContent || "").trim().toLowerCase();
-                return (txt.includes("continue") || txt.includes("i'm done") || txt.includes("follow on droploud") || txt.includes("skip")) && !btn.disabled && !btn.dataset.autoClicked;
-            });
-            if (generalContinueBtn) {
-                generalContinueBtn.dataset.autoClicked = "true";
-                console.info("Clicking Droploud Continue/Skip/Follow step:", generalContinueBtn.textContent.trim());
-                generalContinueBtn.click();
-                return;
-            }
-
-            // 7. Final DOWNLOAD button when unlocked
-            const finalDownloadBtn = Array.from(document.querySelectorAll('.dtr-stage button, .dtr-stage a, .dtr-card-pane button, .dtr-card-pane a, button, a')).find(btn => {
-                const txt = (btn.textContent || "").trim().toLowerCase();
-                const href = (btn.getAttribute('href') || "").toLowerCase();
-                const cardPane = btn.closest('.dtr-card-pane') || document.querySelector('.dtr-card-pane');
-                const isUnlockedPane = !!cardPane?.querySelector('.dtr-card-check') ||
-                                       !!cardPane?.textContent.toLowerCase().includes("drop unlocked");
-                const isDlText = txt === "download" || txt === "download file" || txt.includes("download now") || (isUnlockedPane && txt.includes("download") && !txt.includes("free"));
-                const isDlHref = href.includes("/api/download") || href.includes("r2.dev") || href.includes("drive.google");
-                return (isDlText || isDlHref) && !btn.disabled && !txt.includes("free download") && !txt.includes("preparing");
-            });
-            if (finalDownloadBtn && !window.hasClickedFinalDownload) {
-                window.hasClickedFinalDownload = true;
-                console.info("Clicking Final DOWNLOAD button");
-                finalDownloadBtn.click();
-
-                if (window.hypedditSettings.auto_close) {
-                    const timeout = window.hypedditSettings.auto_close_timeout_in_ms;
-                    setTimeout(function () {
-                        window.close();
-                    }, timeout);
+                    if (window.hypedditSettings.auto_close) {
+                        const timeout = window.hypedditSettings.auto_close_timeout_in_ms;
+                        setTimeout(function () {
+                            window.close();
+                        }, timeout);
+                    }
                 }
             } finally {
                 isHandlingDroploud = false;
