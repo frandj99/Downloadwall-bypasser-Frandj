@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Hypeddit DownloadWallBypasser Reloaded
 // @namespace    https://github.com/frandj99/Downloadwall-bypasser-Frandj
-// @version      2026.11.05.1
+// @version      2026.11.05.2
 // @description  Bypass Hypeddit, PumpYourSound, and Droploud download fangates automatically. Soundcloud and Spotify accounts are mandatory!
 // @author       fan1200, frandj99
 // @match        *://hypeddit.com/*
@@ -16,6 +16,12 @@
 // @match        *://secure.soundcloud.com/authorize*
 // @match        *://*.instagram.com/*
 // @match        *://instagram.com/*
+// @match        *://*.twitter.com/*
+// @match        *://twitter.com/*
+// @match        *://*.x.com/*
+// @match        *://x.com/*
+// @match        *://*.tiktok.com/*
+// @match        *://tiktok.com/*
 // @match        *://accounts.spotify.com/*
 // @match        *://open.spotify.com/*
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=hypeddit.com
@@ -98,14 +104,21 @@
         auto_close_timeout_in_ms: getStored("hypeddit_auto_close_timeout_in_ms", defaultSettings.auto_close_timeout_in_ms),
     };
 
-    if (window.location.host.includes("instagram.com")) {
-        console.log("Instagram handler start");
-        // Automatically close non-required Instagram tabs opened by fangates after a brief delay
-        if (window.opener !== null || document.referrer.match(/(droploud|hypeddit|pumpyoursound)/i)) {
-            console.info("Fangate Instagram tab detected. Auto-closing in 2.5 seconds...");
+    if (window.location.host.includes("instagram.com") ||
+        window.location.host.includes("twitter.com") ||
+        window.location.host.includes("x.com") ||
+        window.location.host.includes("tiktok.com")) {
+        console.log("Social tab handler start:", window.location.host);
+        // Automatically close non-required social tabs opened by fangates after a brief delay
+        const lastSocialTime = getStored("fangate_social_opened_time", 0);
+        const isRecentSocial = (Date.now() - lastSocialTime) < 60000;
+        const isFangateReferrer = !!(document.referrer && document.referrer.match(/(droploud|hypeddit|pumpyoursound)/i));
+        const isFangateHash = window.location.hash.includes("fangate");
+        if (isRecentSocial || isFangateReferrer || isFangateHash || window.opener !== null) {
+            console.info("Fangate social tab detected (" + window.location.host + "). Auto-closing in 2 seconds...");
             setTimeout(function () {
-                window.close();
-            }, 2500);
+                try { window.close(); } catch(e) {}
+            }, 2000);
         }
         return;
     }
@@ -122,10 +135,13 @@
         tryAuthorizeSpotify();
         setInterval(tryAuthorizeSpotify, 400);
 
-        if (window.opener !== null && (document.referrer.match(/(droploud|hypeddit|pumpyoursound)/i) || window.location.href.includes("flow_ctx="))) {
+        const lastSocialTime = getStored("fangate_social_opened_time", 0);
+        const isRecentSocial = (Date.now() - lastSocialTime) < 60000;
+        const isFangateReferrer = !!(document.referrer && document.referrer.match(/(droploud|hypeddit|pumpyoursound)/i));
+        if (isRecentSocial || isFangateReferrer || window.opener !== null || window.location.href.includes("flow_ctx=")) {
             setTimeout(function () {
-                window.close();
-            }, 3000);
+                try { window.close(); } catch(e) {}
+            }, 2500);
         }
         return;
     }
@@ -155,6 +171,8 @@
                         parsed.hash = "fangate_repost";
                         args[0] = parsed.toString();
                     } catch(e) {}
+                } else {
+                    setStored("fangate_social_opened_time", Date.now());
                 }
 
                 try {
@@ -355,6 +373,7 @@
                     });
                     openBtns.forEach(el => {
                         el.dataset.autoClicked = "true";
+                        setStored("fangate_social_opened_time", Date.now());
                         console.info("Opening honor step link:", el.textContent.trim() || el.title);
                         try { el.click(); } catch(e) {}
                     });
@@ -388,6 +407,7 @@
 
                     socialButtons.forEach(el => {
                         el.dataset.autoClicked = "true";
+                        setStored("fangate_social_opened_time", Date.now());
                         console.info("Triggering social link:", el.textContent.trim());
                         try { el.click(); } catch(e) {}
                     });
@@ -443,6 +463,7 @@
                     const isScTrack = href.includes("soundcloud.com") && !href.includes("/connect") && !href.includes("/authorize");
                     const isReshareText = txt.includes("open track on soundcloud") ||
                                           txt.includes("open on soundcloud") ||
+                                          txt.includes("tap repost") ||
                                           txt.includes("reshare") ||
                                           txt.includes("repost") ||
                                           txt.includes("share track");
@@ -450,26 +471,49 @@
                            !txt.includes("verify") && !txt.includes("reposted") && !txt.includes("reshared") && !txt.includes("connect") && !btn.disabled;
                 });
 
-                if ((openScTrackBtn || (isScStep && !isTrackRepostDone)) && !isTrackRepostDone) {
-                    if (!window.lastOpenedScTrack || now - window.lastOpenedScTrack > 10000) {
+                if (openScTrackBtn) {
+                    if (!window.lastOpenedScTrack || now - window.lastOpenedScTrack > 2000) {
                         window.lastOpenedScTrack = now;
-                        const scTrackUrl = getDroploudScTrackUrl() || (openScTrackBtn ? (openScTrackBtn.getAttribute('href') || openScTrackBtn.href) : null);
-                        if (scTrackUrl) {
+                        const scTrackUrl = getDroploudScTrackUrl() || (openScTrackBtn.getAttribute('href') || openScTrackBtn.href || "");
+                        if (scTrackUrl && scTrackUrl.includes("soundcloud.com")) {
                             setStored("fangate_repost_time", Date.now());
                             setStored("fangate_repost_track", scTrackUrl);
                             setStored("fangate_current_track_id", currentTrackId);
 
-                            console.info("Opening SoundCloud track for repost & like:", scTrackUrl);
+                            if (!isTrackRepostDone) {
+                                console.info("Opening SoundCloud track for repost & like:", scTrackUrl);
+                                const targetUrl = scTrackUrl.includes("#fangate_repost") ? scTrackUrl : scTrackUrl + "#fangate_repost";
+                                if (typeof GM_openInTab !== "undefined") {
+                                    GM_openInTab(targetUrl, { active: false, insert: true });
+                                } else {
+                                    window.open(targetUrl, "_blank");
+                                }
+                            }
+                        }
+
+                        console.info("Triggering Droploud Open track button to advance to Verify stage:", openScTrackBtn.textContent.trim());
+                        openScTrackBtn.click();
+                        try {
+                            openScTrackBtn.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, view: window }));
+                        } catch(e) {}
+                        return;
+                    }
+                } else if (isScStep && !isTrackRepostDone) {
+                    if (!window.lastOpenedScTrack || now - window.lastOpenedScTrack > 3000) {
+                        window.lastOpenedScTrack = now;
+                        const scTrackUrl = getDroploudScTrackUrl();
+                        if (scTrackUrl && scTrackUrl.includes("soundcloud.com")) {
+                            setStored("fangate_repost_time", Date.now());
+                            setStored("fangate_repost_track", scTrackUrl);
+                            setStored("fangate_current_track_id", currentTrackId);
+                            console.info("Proactively opening SoundCloud track for repost & like:", scTrackUrl);
                             const targetUrl = scTrackUrl.includes("#fangate_repost") ? scTrackUrl : scTrackUrl + "#fangate_repost";
                             if (typeof GM_openInTab !== "undefined") {
                                 GM_openInTab(targetUrl, { active: false, insert: true });
                             } else {
                                 window.open(targetUrl, "_blank");
                             }
-                        }
-                        if (openScTrackBtn) {
-                            console.info("Triggering Droploud Open track button");
-                            try { openScTrackBtn.click(); } catch(e) {}
+                            return;
                         }
                     }
                 }
