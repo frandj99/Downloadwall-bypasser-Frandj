@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Hypeddit DownloadWallBypasser Reloaded
 // @namespace    https://github.com/frandj99/Downloadwall-bypasser-Frandj
-// @version      2026.11.05.2
+// @version      2026.11.12.1
 // @description  Bypass Hypeddit, PumpYourSound, and Droploud download fangates automatically. Soundcloud and Spotify accounts are mandatory!
 // @author       fan1200, frandj99
 // @match        *://hypeddit.com/*
@@ -224,22 +224,25 @@
 
         const setCheckboxChecked = function (cb, checked = true) {
             if (!cb) return;
-            if (cb.checked !== checked) {
-                cb.click();
+            const proto = window.HTMLInputElement.prototype;
+            const nativeSetter = Object.getOwnPropertyDescriptor(proto, 'checked')?.set;
+            if (cb._valueTracker) {
+                cb._valueTracker.setValue("" + !checked);
             }
-            if (cb.checked !== checked) {
-                const proto = window.HTMLInputElement.prototype;
-                const nativeSetter = Object.getOwnPropertyDescriptor(proto, 'checked')?.set;
-                if (cb._valueTracker) {
-                    cb._valueTracker.setValue(!checked);
-                }
-                if (nativeSetter) {
-                    nativeSetter.call(cb, checked);
-                } else {
-                    cb.checked = checked;
-                }
-                cb.dispatchEvent(new Event('input', { bubbles: true }));
-                cb.dispatchEvent(new Event('change', { bubbles: true }));
+            if (nativeSetter) {
+                nativeSetter.call(cb, checked);
+            } else {
+                cb.checked = checked;
+            }
+            cb.dispatchEvent(new InputEvent('input', { bubbles: true }));
+            cb.dispatchEvent(new Event('input', { bubbles: true }));
+            cb.dispatchEvent(new Event('change', { bubbles: true }));
+
+            const label = cb.closest('label');
+            if (label) {
+                try { label.click(); } catch(e) {}
+            } else if (cb.checked !== checked) {
+                try { cb.click(); } catch(e) {}
             }
         };
 
@@ -333,34 +336,47 @@
 
                 // 2. Email step handling
                 const emailInput = document.querySelector('input#dltg-email, .dltg-stage input[type="email"], .ds-gate-pane input[type="email"], .dtr-stage input[type="email"], input[type="email"]');
-                if (emailInput && (!emailInput.value || !emailInput.dataset.typed)) {
-                    emailInput.dataset.typed = "true";
-                    console.info("Simulating typing for Droploud email");
-                    simulateTyping(emailInput, window.hypedditSettings.email);
-                }
-
-                const consentCheckbox = document.querySelector('.dltg-stage input[type="checkbox"]:not(:checked), .ds-gate-pane input[type="checkbox"]:not(:checked), input[name="consent"]:not(:checked), input[type="checkbox"]:not(:checked)');
-                if (consentCheckbox) {
-                    console.info("Checking consent checkbox");
-                    setCheckboxChecked(consentCheckbox, true);
-                }
-
+                const consentCheckbox = document.querySelector('.dltg-stage input[type="checkbox"], .ds-gate-pane input[type="checkbox"], input[name="consent"], input[type="checkbox"]');
                 const emailContinueBtn = Array.from(document.querySelectorAll('.dltg-stage button, .ds-gate-pane button, form button[type="submit"], .dtr-stage button, .dtr-card-pane button')).find(btn => {
                     const txt = (btn.textContent || "").trim().toLowerCase();
                     const isSubmit = btn.type === "submit" || btn.classList.contains("ds-gate-wide");
                     return (txt.includes("continue") || txt.includes("next") || (isSubmit && txt.includes("free download")));
                 });
-                if (emailInput && emailInput.value && emailContinueBtn) {
-                    if (emailContinueBtn.disabled) {
-                        emailInput.dispatchEvent(new Event('input', { bubbles: true }));
-                        emailInput.dispatchEvent(new Event('change', { bubbles: true }));
-                        if (consentCheckbox) setCheckboxChecked(consentCheckbox, true);
-                    } else if (!window.lastEmailContinueClick || now - window.lastEmailContinueClick > 1500) {
-                        window.lastEmailContinueClick = now;
-                        console.info("Clicking email Continue/Submit button:", emailContinueBtn.textContent.trim());
-                        emailContinueBtn.click();
-                        try { emailContinueBtn.form?.requestSubmit(); } catch(err) {}
-                        return;
+
+                if (emailInput) {
+                    const isEmailDisabled = !emailContinueBtn || emailContinueBtn.disabled;
+                    if (!emailInput.value || isEmailDisabled || !emailInput.dataset.typed) {
+                        emailInput.dataset.typed = "true";
+                        simulateTyping(emailInput, window.hypedditSettings.email);
+                    }
+                }
+
+                if (consentCheckbox) {
+                    const isEmailDisabled = !emailContinueBtn || emailContinueBtn.disabled;
+                    if (!consentCheckbox.checked || isEmailDisabled) {
+                        setCheckboxChecked(consentCheckbox, true);
+                    }
+                }
+
+                if (emailContinueBtn) {
+                    if (emailContinueBtn.disabled && emailInput && emailInput.value) {
+                        emailContinueBtn.removeAttribute('disabled');
+                        emailContinueBtn.disabled = false;
+                    }
+
+                    if (!emailContinueBtn.disabled) {
+                        if (!window.lastEmailContinueClick || now - window.lastEmailContinueClick > 1200) {
+                            window.lastEmailContinueClick = now;
+                            console.info("Clicking email Continue/Submit button:", emailContinueBtn.textContent.trim());
+                            emailContinueBtn.click();
+                            try {
+                                emailContinueBtn.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, view: window }));
+                            } catch(e) {}
+                            try {
+                                emailContinueBtn.form?.requestSubmit();
+                            } catch(err) {}
+                            return;
+                        }
                     }
                 }
 
@@ -428,26 +444,39 @@
 
                 // 5. SoundCloud step (with comment typing emulation and track repost handling)
                 const commentInput = document.querySelector('#dltg-sc-comment, #dtr-sc-comment-input, input[name="comment"], textarea[name="comment"], textarea.ds-input, textarea[placeholder*="comment"], textarea');
-                if (commentInput && !commentInput.dataset.typed) {
-                    commentInput.dataset.typed = "true";
-                    console.info("Simulating typing for comment input");
-                    simulateTyping(commentInput, window.hypedditSettings.comment);
+                const rawScBtn = Array.from(document.querySelectorAll('button')).find(btn => {
+                    const txt = (btn.textContent || "").trim().toLowerCase();
+                    return btn.classList.contains("ds-sc-btn") ||
+                           txt.includes("connect with soundcloud") ||
+                           txt.includes("connect soundcloud") ||
+                           (txt.includes("connect with") && (btn.querySelector('svg, img') || txt.includes("soundcloud")));
+                });
+
+                if (commentInput) {
+                    const isScBtnDisabled = rawScBtn && rawScBtn.disabled;
+                    if (!commentInput.value || isScBtnDisabled || !commentInput.dataset.typed) {
+                        commentInput.dataset.typed = "true";
+                        console.info("Simulating typing for comment input");
+                        simulateTyping(commentInput, window.hypedditSettings.comment);
+                    }
                 }
 
-                const connectScBtn = Array.from(document.querySelectorAll('button')).find(btn => {
-                    const txt = (btn.textContent || "").trim().toLowerCase();
-                    const isScBtn = btn.classList.contains("ds-sc-btn") ||
-                                    txt.includes("connect with soundcloud") ||
-                                    txt.includes("connect soundcloud") ||
-                                    (txt.includes("connect with") && (btn.querySelector('svg, img') || txt.includes("soundcloud")));
-                    return isScBtn && !btn.disabled;
-                });
-                if (connectScBtn) {
-                    if (!window.lastConnectScClick || now - window.lastConnectScClick > 3000) {
-                        window.lastConnectScClick = now;
-                        console.info("Clicking Connect SoundCloud");
-                        connectScBtn.click();
-                        return;
+                if (rawScBtn) {
+                    if (rawScBtn.disabled && commentInput && commentInput.value) {
+                        rawScBtn.removeAttribute('disabled');
+                        rawScBtn.disabled = false;
+                    }
+
+                    if (!rawScBtn.disabled) {
+                        if (!window.lastConnectScClick || now - window.lastConnectScClick > 2000) {
+                            window.lastConnectScClick = now;
+                            console.info("Clicking Connect SoundCloud");
+                            rawScBtn.click();
+                            try {
+                                rawScBtn.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, view: window }));
+                            } catch(e) {}
+                            return;
+                        }
                     }
                 }
 
@@ -464,6 +493,7 @@
                     const isReshareText = txt.includes("open track on soundcloud") ||
                                           txt.includes("open on soundcloud") ||
                                           txt.includes("tap repost") ||
+                                          txt.includes("back to soundcloud") ||
                                           txt.includes("reshare") ||
                                           txt.includes("repost") ||
                                           txt.includes("share track");
@@ -472,7 +502,7 @@
                 });
 
                 if (openScTrackBtn) {
-                    if (!window.lastOpenedScTrack || now - window.lastOpenedScTrack > 2000) {
+                    if (!window.lastOpenedScTrack || now - window.lastOpenedScTrack > 1500) {
                         window.lastOpenedScTrack = now;
                         const scTrackUrl = getDroploudScTrackUrl() || (openScTrackBtn.getAttribute('href') || openScTrackBtn.href || "");
                         if (scTrackUrl && scTrackUrl.includes("soundcloud.com")) {
@@ -499,7 +529,7 @@
                         return;
                     }
                 } else if (isScStep && !isTrackRepostDone) {
-                    if (!window.lastOpenedScTrack || now - window.lastOpenedScTrack > 3000) {
+                    if (!window.lastOpenedScTrack || now - window.lastOpenedScTrack > 2500) {
                         window.lastOpenedScTrack = now;
                         const scTrackUrl = getDroploudScTrackUrl();
                         if (scTrackUrl && scTrackUrl.includes("soundcloud.com")) {
@@ -532,11 +562,14 @@
                             txt.includes("i liked it too")) && !btn.disabled && btn.getAttribute('aria-disabled') !== "true" && !btn.classList.contains("ds-disabled");
                 });
                 if (verifyRepostBtn) {
-                    const interval = isTrackRepostDone ? 1500 : 3000;
+                    const interval = isTrackRepostDone ? 1200 : 2500;
                     if (!window.lastVerifyClick || now - window.lastVerifyClick > interval) {
                         window.lastVerifyClick = now;
                         console.info("Clicking Verify Repost:", verifyRepostBtn.textContent.trim());
                         verifyRepostBtn.click();
+                        try {
+                            verifyRepostBtn.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, view: window }));
+                        } catch(e) {}
                         return;
                     }
                 }
