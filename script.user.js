@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Hypeddit DownloadWallBypasser Reloaded
 // @namespace    https://github.com/frandj99/Downloadwall-bypasser-Frandj
-// @version      2026.11.12.2
+// @version      2026.11.12.3
 // @description  Bypass Hypeddit, PumpYourSound, and Droploud download fangates automatically. Soundcloud and Spotify accounts are mandatory!
 // @author       fan1200, frandj99
 // @match        *://hypeddit.com/*
@@ -1041,35 +1041,102 @@
         console.info("SoundCloud track opened from fangate detected. Initiating auto-repost handler...");
 
         const findLikeButton = () => {
-            const direct = document.querySelector('.soundActions button.sc-button-like, .soundActions .sc-button-like, button.sc-button-like, .sc-button-like');
-            if (direct) return direct;
-            const candidates = Array.from(document.querySelectorAll('.soundActions button, button.sc-button, button'));
-            return candidates.find(btn => {
-                if (btn.closest('.sc-ministats') || btn.closest('.listenEngagement') || btn.closest('.headerSearch') || btn.closest('.playControls') || btn.closest('.sidebar')) return false;
+            const direct = document.querySelector(`
+                .soundActions button.sc-button-like,
+                .soundActions .sc-button-like,
+                button.sc-button-like,
+                .sc-button-like,
+                button[data-testid="like-button"]
+            `);
+            if (direct && !direct.disabled) return direct;
+
+            const allButtons = Array.from(document.querySelectorAll('button, [role="button"], a.sc-button'));
+            return allButtons.find(btn => {
+                const isNav = btn.closest('.sc-ministats') ||
+                              btn.closest('.listenEngagement__stats') ||
+                              btn.closest('.headerSearch') ||
+                              btn.closest('.playControls') ||
+                              btn.closest('.sidebar') ||
+                              btn.closest('form[role="search"]');
+                if (isNav) return false;
+
                 const title = (btn.getAttribute('title') || '').toLowerCase();
                 const aria = (btn.getAttribute('aria-label') || '').toLowerCase();
+                const desc = (btn.getAttribute('aria-description') || '').toLowerCase();
                 const txt = (btn.textContent || '').trim().toLowerCase();
-                if (/^\d+\s*likes?/.test(title) || /^\d+\s*likes?/.test(aria) || /^\d+$/.test(txt)) return false;
-                return title === "like" || aria === "like" || txt === "like" || title.includes("like") || aria.includes("like");
+
+                if (/^\d+[\s,.]*(?:likes?)?$/.test(txt) || /^\d+[\s,.]*(?:likes?)?$/.test(title) || /^\d+[\s,.]*(?:likes?)?$/.test(aria)) return false;
+
+                if (title === "like" || aria === "like" || txt === "like" || title.includes("like") || aria.includes("like") || desc.includes("like")) {
+                    return true;
+                }
+
+                const svg = btn.querySelector('svg');
+                if (svg) {
+                    const svgClass = (svg.getAttribute('class') || '').toLowerCase();
+                    const svgUse = svg.querySelector('use');
+                    const useHref = svgUse ? (svgUse.getAttribute('href') || svgUse.getAttribute('xlink:href') || '').toLowerCase() : '';
+                    if (svgClass.includes("like") || useHref.includes("like")) return true;
+                }
+                return false;
             });
         };
 
         const findRepostButton = () => {
-            const containerBtn = document.querySelector('.repostCaptionContainer button, .repostCaptionContainer [role="button"]');
-            if (containerBtn) return containerBtn;
+            // 1. Direct container or class
+            const direct = document.querySelector(`
+                .repostCaptionContainer button,
+                .repostCaptionContainer [role="button"],
+                button.sc-button-repost,
+                .sc-button-repost,
+                button[data-testid="repost-button"]
+            `);
+            if (direct && !direct.disabled) return direct;
 
-            const directBtn = document.querySelector('.soundActions button.sc-button-repost, .soundActions .sc-button-repost, button.sc-button-repost, .sc-button-repost');
-            if (directBtn) return directBtn;
+            // 2. Search all buttons for explicit repost indicators
+            const allButtons = Array.from(document.querySelectorAll('button, [role="button"], a.sc-button'));
+            const match = allButtons.find(btn => {
+                const isNav = btn.closest('.sc-ministats') ||
+                              btn.closest('.listenEngagement__stats') ||
+                              btn.closest('.headerSearch') ||
+                              btn.closest('.playControls') ||
+                              btn.closest('.sidebar') ||
+                              btn.closest('form[role="search"]');
+                if (isNav) return false;
 
-            const candidates = Array.from(document.querySelectorAll('.soundActions button, button.sc-button, button'));
-            return candidates.find(btn => {
-                if (btn.closest('.sc-ministats') || btn.closest('.listenEngagement') || btn.closest('.headerSearch') || btn.closest('.playControls') || btn.closest('.sidebar')) return false;
                 const title = (btn.getAttribute('title') || '').toLowerCase();
                 const aria = (btn.getAttribute('aria-label') || '').toLowerCase();
+                const desc = (btn.getAttribute('aria-description') || '').toLowerCase();
                 const txt = (btn.textContent || '').trim().toLowerCase();
-                if (/^\d+\s*reposts?/.test(title) || /^\d+\s*reposts?/.test(aria) || /^\d+$/.test(txt)) return false;
-                return title.includes("repost") || aria.includes("repost") || txt === "repost" || txt === "reposted";
+
+                // Skip stat counters (e.g. "17 reposts", "17")
+                if (/^\d+[\s,.]*(?:reposts?)?$/.test(txt) || /^\d+[\s,.]*(?:reposts?)?$/.test(title) || /^\d+[\s,.]*(?:reposts?)?$/.test(aria)) return false;
+
+                if (title.includes("repost") || aria.includes("repost") || desc.includes("repost") || txt === "repost" || txt === "reposted" || txt.includes("repost")) {
+                    return true;
+                }
+
+                // Check SVG inside button
+                const svg = btn.querySelector('svg');
+                if (svg) {
+                    const svgClass = (svg.getAttribute('class') || '').toLowerCase();
+                    const svgUse = svg.querySelector('use');
+                    const useHref = svgUse ? (svgUse.getAttribute('href') || svgUse.getAttribute('xlink:href') || '').toLowerCase() : '';
+                    if (svgClass.includes("repost") || useHref.includes("repost")) return true;
+                }
+                return false;
             });
+
+            if (match) return match;
+
+            // 3. Fallback for UIEvo: find button inside .repostCaptionContainer or parent container
+            const captionContainer = document.querySelector('.repostCaptionContainer, [class*="repostCaption"], [class*="repostOverlay"]');
+            if (captionContainer) {
+                const btn = captionContainer.querySelector('button, [role="button"]');
+                if (btn) return btn;
+            }
+
+            return null;
         };
 
         const tryRepostTrack = () => {
@@ -1079,6 +1146,7 @@
             const likeBtn = findLikeButton();
             if (likeBtn && !window.hasHandledScLike) {
                 const isAlreadyLiked = likeBtn.classList.contains("sc-button-selected") ||
+                                       likeBtn.classList.contains("uiEvoButton--isSelected") ||
                                        (likeBtn.getAttribute('title') || '').toLowerCase().includes("unlike") ||
                                        (likeBtn.getAttribute('aria-label') || '').toLowerCase().includes("unlike") ||
                                        (likeBtn.getAttribute('title') || '').toLowerCase().includes("liked") ||
@@ -1097,6 +1165,7 @@
             if (!repostBtn) return;
 
             const isAlreadyReposted = repostBtn.classList.contains("sc-button-selected") ||
+                                      repostBtn.classList.contains("uiEvoButton--isSelected") ||
                                       (repostBtn.getAttribute('title') || '').toLowerCase().includes("reposted") ||
                                       (repostBtn.getAttribute('title') || '').toLowerCase().includes("unpost") ||
                                       (repostBtn.getAttribute('title') || '').toLowerCase().includes("remove") ||
@@ -1125,14 +1194,33 @@
                 repostBtn.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, view: window }));
             } catch(e) {}
 
-            // If a caption modal or dropdown appears, confirm it
-            setTimeout(() => {
-                const modalConfirmBtn = document.querySelector('.repostCaptionContainer__dropdown button[type="submit"], .modal__content button.sc-button-cta, .modal__content button.sc-button-orange, button.repostDropdown__button');
+            // In SoundCloud UIEvo, clicking Repost opens a caption overlay/modal (repostOverlay)
+            // Actively poll for the confirm/submit button inside the overlay and click it
+            let confirmTries = 0;
+            const confirmInterval = setInterval(() => {
+                confirmTries++;
+                const modalConfirmBtn = document.querySelector(`
+                    .repostOverlay__formButtonSubmit,
+                    .repostOverlay button[type="submit"],
+                    .repostCaptionContainer__dropdown button[type="submit"],
+                    .repostCaptionContainer__dropdown button,
+                    .repostOverlay__closeButton,
+                    .modal__content button.sc-button-cta,
+                    .modal__content button.sc-button-orange,
+                    button.repostDropdown__button
+                `);
                 if (modalConfirmBtn) {
                     console.info("Confirming repost in caption modal/dropdown:", modalConfirmBtn);
                     modalConfirmBtn.click();
+                    try {
+                        modalConfirmBtn.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, view: window }));
+                    } catch(e) {}
+                    clearInterval(confirmInterval);
                 }
-            }, 300);
+                if (confirmTries > 30) {
+                    clearInterval(confirmInterval);
+                }
+            }, 100);
 
             if (currentTrackId) setStored("repost_done_" + currentTrackId, true);
             setStored("fangate_repost_completed", Date.now());
